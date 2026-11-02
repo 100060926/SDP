@@ -1,0 +1,5 @@
+Meeting 6: Source Code Handover with Moshira
+
+Date: 22 October
+
+I met with Moshira, who provided the source code for the previous year’s SDP project. She also explained some parts of the code to help us understand the existing implementation and begin working on the required additions.
