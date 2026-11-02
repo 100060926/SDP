@@ -1,0 +1,5 @@
+Meeting 3: Previous Project Review with Moshira
+
+Date: 13 October
+
+I met with Moshira to ask about the source code from the previous year’s SDP project. She showed me the project and explained that object detection and file detection are different functionalities. As the project scope was still unclear to us, she advised us to consult Dr. Noufel for clarification and confirmation.
