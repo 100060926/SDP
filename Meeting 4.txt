@@ -1,5 +1,0 @@
-Meeting 4: Project Scope Clarification with Dr. Noufel
-
-Date: 15 October
-
-We met with Dr. Noufel to clarify the project requirements. He confirmed that the project focuses on object detection and that knife and gun detection had already been implemented. He asked us to add two more object categories, such as sticks and scissors. He also requested a feature to monitor a stationary object, such as a monitor, and detect if it is removed or potentially stolen.
