@@ -50,6 +50,11 @@ CAMERA_PRESETS = OrderedDict(
 
 DEFAULT_CAMERA_URL = CAMERA_PRESETS["Camera 3"]
 DEFAULT_THRESHOLD = 0.6 # lowered from 0.50
+PERSON_MODEL_NAME = "yolo11n.pt"
+DEFAULT_DOORWAY_LINE = (0.50, 0.08, 0.50, 0.92)
+DOOR_CROSSING_DEADBAND_PX = 12
+TRACK_CLEANUP_FRAMES = 90
+TRACK_CROSSING_COOLDOWN_FRAMES = 12
 
 SEGMENT_LEN = 1
 SELECTED_FRAMES_PER_SEGMENT = 1
@@ -545,6 +550,98 @@ class YOLOWeaponAnalyzer:
         }
 
 
+def _line_signed_distance(point, line):
+    x1, y1, x2, y2 = line
+    dx = x2 - x1
+    dy = y2 - y1
+    line_length = math.hypot(dx, dy)
+    if line_length == 0:
+        return 0.0
+    return (dx * (point[1] - y1) - dy * (point[0] - x1)) / line_length
+
+
+def _crosses_doorway_segment(previous_point, current_point, line):
+    previous_distance = _line_signed_distance(previous_point, line)
+    current_distance = _line_signed_distance(current_point, line)
+    if previous_distance == current_distance:
+        return False
+    fraction = previous_distance / (previous_distance - current_distance)
+    if fraction < 0.0 or fraction > 1.0:
+        return False
+    crossing_x = previous_point[0] + fraction * (current_point[0] - previous_point[0])
+    crossing_y = previous_point[1] + fraction * (current_point[1] - previous_point[1])
+    line_x1, line_y1, line_x2, line_y2 = line
+    line_dx = line_x2 - line_x1
+    line_dy = line_y2 - line_y1
+    line_length_squared = line_dx * line_dx + line_dy * line_dy
+    if line_length_squared == 0:
+        return False
+    projection = (
+        (crossing_x - line_x1) * line_dx + (crossing_y - line_y1) * line_dy
+    ) / line_length_squared
+    return 0.0 <= projection <= 1.0
+
+
+class YOLOPersonFlowTracker:
+    def __init__(self, model_name):
+        if YOLO is None:
+            raise RuntimeError(
+                "ultralytics is not installed. Install with `pip install ultralytics`.\n"
+                f"Import error: {ULTRALYTICS_IMPORT_ERROR}"
+            )
+        self.model = YOLO(model_name)
+        names = getattr(self.model, "names", {})
+        if isinstance(names, dict):
+            name_items = names.items()
+        elif isinstance(names, list):
+            name_items = enumerate(names)
+        else:
+            name_items = []
+        person_ids = [
+            int(class_id)
+            for class_id, name in name_items
+            if _normalize_label(name) == "person"
+        ]
+        if not person_ids:
+            raise RuntimeError(
+                f"The person detection model '{model_name}' has no 'person' class."
+            )
+        self.person_class_id = person_ids[0]
+        self.device_arg = 0 if (torch is not None and torch.cuda.is_available()) else "cpu"
+
+    def track(self, frame):
+        result = self.model.track(
+            source=frame,
+            persist=True,
+            classes=[self.person_class_id],
+            conf=0.25,
+            iou=APP_IOU_THRESHOLD,
+            imgsz=APP_IMAGE_SIZE,
+            device=self.device_arg,
+            tracker="bytetrack.yaml",
+            verbose=False,
+        )[0]
+        detections = []
+        boxes = getattr(result, "boxes", None)
+        if boxes is None:
+            return detections
+        for box in boxes:
+            coordinates = box.xyxy[0].tolist()
+            confidence = float(box.conf[0].item())
+            track_id = None
+            box_id = getattr(box, "id", None)
+            if box_id is not None:
+                track_id = int(box_id[0].item())
+            detections.append(
+                {
+                    "bbox": [float(value) for value in coordinates],
+                    "confidence": confidence,
+                    "track_id": track_id,
+                }
+            )
+        return detections
+
+
 def get_analyzer(model_name):
     key = (
         str(_resolve_model_name(model_name)),
@@ -644,7 +741,7 @@ def stream_worker(stream_id, camera_url, threshold, frame_stride, model_name, is
         "score": 0.0,
     }
 
-    set_stream_state(stream_id, status="running", status_label="Monitoring stream (waiting for first inference)", status_note="Violence Detection is running.", fps=float(fps))
+    set_stream_state(stream_id, status="running", status_label="Monitoring stream (waiting for first inference)", status_note="Weapon detection is running.", fps=float(fps))
 
     try:
         while True:
@@ -872,13 +969,221 @@ def stream_worker(stream_id, camera_url, threshold, frame_stride, model_name, is
                         state["status_label"] = "Stream completed"
 
 
+def lab_flow_worker(
+   stream_id,
+   camera_url,
+   frame_stride,
+   is_uploaded_source,
+   realtime_playback,
+   doorway_line,
+   lab_side,
+):
+   cap = cv2.VideoCapture(camera_url)
+   if not cap.isOpened():
+       set_stream_state(stream_id, status="error", error="Could not open source stream.")
+       return
+
+   try:
+       tracker = YOLOPersonFlowTracker(PERSON_MODEL_NAME)
+       fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+       line_ratio = tuple(float(value) for value in doorway_line)
+       inside_sign = 1 if lab_side == "left" else -1
+       entries = 0
+       exits = 0
+       frame_index = 0
+       sampled_count = 0
+       tracks = {}
+       latency_history_ms = deque(maxlen=40)
+       playback_start = time.perf_counter()
+       current_detections = []
+
+       set_stream_state(
+           stream_id,
+           status="running",
+           status_label="Lab flow: waiting for people",
+           status_note=(
+               f"Tracking people with {PERSON_MODEL_NAME}. Configure the line across "
+               "the sliding-door threshold; the selected lab side determines entry direction."
+           ),
+           fps=float(fps),
+       )
+
+       while True:
+           with STREAMS_LOCK:
+               state = STREAMS.get(stream_id)
+               if state is None or state.get("stop_requested"):
+                   break
+
+           ok, frame = cap.read()
+           if not ok:
+               if is_uploaded_source:
+                   break
+               set_stream_state(stream_id, status="error", error="Stream disconnected.")
+               break
+
+           infer_ms = 0.0
+           event = ""
+           if frame_index % max(1, int(frame_stride)) == 0:
+               sampled_count += 1
+               infer_started = time.perf_counter()
+               current_detections = tracker.track(frame)
+               infer_ms = (time.perf_counter() - infer_started) * 1000.0
+               latency_history_ms.append(infer_ms)
+               height, width = frame.shape[:2]
+               line = (
+                   line_ratio[0] * width,
+                   line_ratio[1] * height,
+                   line_ratio[2] * width,
+                   line_ratio[3] * height,
+               )
+               for detection in current_detections:
+                   track_id = detection["track_id"]
+                   if track_id is None:
+                       continue
+                   x1, y1, x2, y2 = detection["bbox"]
+                   point = ((x1 + x2) / 2.0, y2)
+                   distance = _line_signed_distance(point, line)
+                   side = (
+                       1
+                       if distance > DOOR_CROSSING_DEADBAND_PX
+                       else -1
+                       if distance < -DOOR_CROSSING_DEADBAND_PX
+                       else 0
+                   )
+                   previous = tracks.get(track_id)
+                   if previous is not None and side and previous["side"] and side != previous["side"]:
+                       recently_counted = (
+                           frame_index - previous["last_crossing"]
+                           < TRACK_CROSSING_COOLDOWN_FRAMES
+                       )
+                       if (
+                           not recently_counted
+                           and frame_index - previous["last_seen"] <= TRACK_CLEANUP_FRAMES
+                           and _crosses_doorway_segment(previous["point"], point, line)
+                       ):
+                           if side == inside_sign:
+                               entries += 1
+                               event = "entry"
+                           else:
+                               exits += 1
+                               event = "exit"
+                           previous["last_crossing"] = frame_index
+                   if previous is None:
+                       previous = {"last_crossing": -TRACK_CLEANUP_FRAMES}
+                   previous["point"] = point
+                   previous["last_seen"] = frame_index
+                   if side:
+                       previous["side"] = side
+                   else:
+                       previous.setdefault("side", 0)
+                   tracks[track_id] = previous
+
+               expired_tracks = [
+                   track_id
+                   for track_id, track in tracks.items()
+                   if frame_index - track["last_seen"] > TRACK_CLEANUP_FRAMES
+               ]
+               for track_id in expired_tracks:
+                   del tracks[track_id]
+
+           height, width = frame.shape[:2]
+           line = (
+               int(line_ratio[0] * width),
+               int(line_ratio[1] * height),
+               int(line_ratio[2] * width),
+               int(line_ratio[3] * height),
+           )
+           preview = frame.copy()
+           cv2.line(preview, line[:2], line[2:], (0, 220, 255), 3, cv2.LINE_AA)
+           cv2.circle(preview, line[:2], 7, (0, 220, 255), -1, cv2.LINE_AA)
+           cv2.circle(preview, line[2:], 7, (0, 220, 255), -1, cv2.LINE_AA)
+           for detection in current_detections:
+               x1, y1, x2, y2 = [int(value) for value in detection["bbox"]]
+               cv2.rectangle(preview, (x1, y1), (x2, y2), (60, 235, 130), 2)
+               track_id = detection["track_id"]
+               label = f"Person {track_id}" if track_id is not None else "Person"
+               cv2.putText(
+                   preview,
+                   label,
+                   (x1, max(20, y1 - 8)),
+                   cv2.FONT_HERSHEY_DUPLEX,
+                   0.62,
+                   (60, 235, 130),
+                   2,
+                   cv2.LINE_AA,
+               )
+
+           visible_people = len(current_detections)
+           status_text = f"LAB FLOW  IN {entries}  OUT {exits}"
+           cv2.putText(
+               preview,
+               f"People in view: {visible_people}",
+               (20, max(30, height - 20)),
+               cv2.FONT_HERSHEY_DUPLEX,
+               0.7,
+               (255, 255, 255),
+               2,
+               cv2.LINE_AA,
+           )
+           encoded_preview = encode_preview(preview, status_text, 0.0, 0.0)
+           avg_infer_ms = float(np.mean(latency_history_ms)) if latency_history_ms else 0.0
+           set_stream_state(
+               stream_id,
+               status="running",
+               status_label=f"Lab flow: {entries} entered / {exits} exited",
+               status_note=(
+                   f"Last event: {event or 'none'}; line is yellow; detected people are green. "
+                   f"Net flow since monitoring started: {entries - exits}."
+               ),
+               output_label="lab_flow",
+               anomaly_type="people",
+               reason_code="doorway_crossing" if event else "monitoring",
+               short_description=(
+                   f"Entries: {entries}; exits: {exits}; people currently in view: {visible_people}."
+               ),
+               entry_count=entries,
+               exit_count=exits,
+               net_flow=entries - exits,
+               people_visible=visible_people,
+               processed_samples=sampled_count,
+               last_frame_index=frame_index,
+               last_frame_time_sec=float(frame_index / fps),
+               last_infer_ms=infer_ms,
+               avg_infer_ms=avg_infer_ms,
+               latest_frame=encoded_preview,
+           )
+
+           frame_index += 1
+           if realtime_playback:
+               expected_elapsed = frame_index / fps
+               actual_elapsed = time.perf_counter() - playback_start
+               if expected_elapsed > actual_elapsed:
+                   time.sleep(min(expected_elapsed - actual_elapsed, 0.2))
+   except Exception as exc:
+       tb = traceback.format_exc(limit=20)
+       set_stream_state(stream_id, status="error", error=f"{type(exc).__name__}: {exc}\n{tb}")
+   finally:
+       cap.release()
+       with STREAMS_LOCK:
+           state = STREAMS.get(stream_id)
+           if state is not None and state.get("status") != "error":
+               state["status"] = "stopped" if state.get("stop_requested") else "completed"
+               if not state.get("stop_requested"):
+                   state["status_label"] = "Lab flow video completed" if is_uploaded_source else "Lab flow stream completed"
+                   if is_uploaded_source:
+                       state["status_note"] = (
+                           f"Video summary: {state.get('entry_count', 0)} entries, "
+                           f"{state.get('exit_count', 0)} exits."
+                       )
+
+
 PAGE_TEMPLATE = """
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Violence Detection</title>
+  <title>SDP Safety Monitor</title>
   <style>
     :root {{
       --bg-1: #08131f; --bg-2: #10283c; --panel: rgba(7, 16, 27, 0.76);
@@ -910,6 +1215,10 @@ PAGE_TEMPLATE = """
     .k {{ color:var(--muted); font-size:0.72rem; text-transform:uppercase; }}
     .v {{ font-size:1.2rem; font-weight:800; margin-top:4px; }}
     .help {{ color:var(--muted); white-space:pre-wrap; word-break:break-word; }}
+    .doorway-config {{ display:none; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; margin:12px 0; }}
+    .doorway-config p {{ grid-column:1 / -1; margin:0; }}
+    .doorway-config label {{ margin:0; }}
+    .doorway-config input, .doorway-config select {{ margin-top:6px; }}
     .two-up {{ display:grid; grid-template-columns: 1fr 1fr; gap:18px; }}
     .subhead {{ margin: 0 0 10px 0; color:var(--muted); font-size:0.9rem; text-transform:uppercase; letter-spacing:0.06em; }}
     .cooldown-bar-wrap {{ margin-top:10px; background: rgba(255,255,255,0.07); border-radius:8px; height:8px; overflow:hidden; }}
@@ -921,12 +1230,23 @@ PAGE_TEMPLATE = """
   <div class="wrap">
     <div class="grid">
       <section class="card">
-        <h2>Violence Detection</h2>
+        <h2>SDP Safety Monitor</h2>
         <form id="stream-form">
           <div><label for="camera_preset">Camera</label><select id="camera_preset">{camera_preset_options}</select></div>
-          <div><label for="model_name">Model</label><select id="model_name" name="model_name">{model_options}</select></div>
+          <div><label for="detection_mode">Monitoring feature</label><select id="detection_mode" name="detection_mode"><option value="weapon">Weapon detection</option><option value="lab_flow">Lab entry / exit</option></select></div>
+          <div id="weapon-model-config"><label for="model_name">Weapon model</label><select id="model_name" name="model_name">{model_options}</select></div>
           <div><label for="frame_stride">Sampling Stride</label><input id="frame_stride" name="frame_stride" type="number" min="1" max="16" step="1" value="{default_frame_stride}"></div>
           <div><label><input id="show_boxes" name="show_boxes" type="checkbox" value="1"> Show boxes and classes</label></div>
+          <div id="doorway-config" class="doorway-config">
+            <p class="help">Place the yellow line across the sliding-door threshold. Coordinates are percentages of the camera image. The side is interpreted relative to the line from point 1 to point 2. Counts start when monitoring starts; this tracks passage, not the door panel's open/closed state. Person detection uses the included {person_model_name} model. Override it with --person-model-name.</p>
+            <label>Point 1 X (%)<input id="door-line-x1" name="door_line_x1" type="number" min="0" max="100" step="1" value="{door_line_x1}"></label>
+            <label>Point 1 Y (%)<input id="door-line-y1" name="door_line_y1" type="number" min="0" max="100" step="1" value="{door_line_y1}"></label>
+            <label>Point 2 X (%)<input id="door-line-x2" name="door_line_x2" type="number" min="0" max="100" step="1" value="{door_line_x2}"></label>
+            <label>Point 2 Y (%)<input id="door-line-y2" name="door_line_y2" type="number" min="0" max="100" step="1" value="{door_line_y2}"></label>
+            <label>Lab is on the
+              <select id="lab-side" name="lab_side"><option value="left">Left side</option><option value="right">Right side</option></select>
+            </label>
+          </div>
           <button type="submit">Start Monitor</button><button id="stop-btn" type="button" class="stop">Stop Stream</button>
         </form>
         <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data">
@@ -934,6 +1254,12 @@ PAGE_TEMPLATE = """
           <input id="upload_model_name" name="model_name" type="hidden" value="{default_model_key}">
           <input id="upload_frame_stride" name="frame_stride" type="hidden" value="{default_frame_stride}">
           <input id="upload_show_boxes" name="show_boxes" type="hidden" value="0">
+          <input id="upload_detection_mode" name="detection_mode" type="hidden" value="weapon">
+          <input id="upload_door_line_x1" name="door_line_x1" type="hidden" value="{door_line_x1}">
+          <input id="upload_door_line_y1" name="door_line_y1" type="hidden" value="{door_line_y1}">
+          <input id="upload_door_line_x2" name="door_line_x2" type="hidden" value="{door_line_x2}">
+          <input id="upload_door_line_y2" name="door_line_y2" type="hidden" value="{door_line_y2}">
+          <input id="upload_lab_side" name="lab_side" type="hidden" value="left">
           <button type="submit">Analyze Uploaded Video</button>
         </form>
         <p id="form-message" class="help">{message}</p>
@@ -964,7 +1290,7 @@ PAGE_TEMPLATE = """
           </div>
         </div>
       </div>
-      <div class="metrics">
+      <div id="weapon-metrics" class="metrics">
         <div class="metric"><div class="k">Smoothed confidence</div><div id="current-score" class="v">0.000</div></div>
         <div class="metric"><div class="k">Raw confidence</div><div id="raw-score" class="v">0.000</div></div>
         <div class="metric"><div class="k">Peak confidence</div><div id="recent-max" class="v">0.000</div></div>
@@ -978,6 +1304,14 @@ PAGE_TEMPLATE = """
         <div class="metric highlight"><div class="k">Hits / window</div><div id="recent-hits" class="v">0 / {confirmation_history}</div></div>
         <div class="metric highlight"><div class="k">EMA alpha</div><div id="ema-alpha" class="v">{ema_alpha}</div></div>
       </div>
+      <div id="lab-metrics" class="metrics" style="display:none">
+        <div class="metric highlight"><div class="k">Entries</div><div id="entry-count" class="v">0</div></div>
+        <div class="metric highlight"><div class="k">Exits</div><div id="exit-count" class="v">0</div></div>
+        <div class="metric"><div class="k">Net flow since start</div><div id="net-flow" class="v">0</div></div>
+        <div class="metric"><div class="k">People in view</div><div id="people-visible" class="v">0</div></div>
+        <div class="metric"><div class="k">Last infer (ms)</div><div id="lab-last-infer-ms" class="v">0</div></div>
+        <div class="metric"><div class="k">Avg infer (ms)</div><div id="lab-avg-infer-ms" class="v">0</div></div>
+      </div>
     </section>
   </div>
   <script>
@@ -989,12 +1323,32 @@ PAGE_TEMPLATE = """
       const formMessage = document.getElementById("form-message");
       const cameraPreset = document.getElementById("camera_preset");
       const cameraPresetMap = {camera_preset_json};
+      const detectionModeInput = document.getElementById("detection_mode");
       const modelNameInput = document.getElementById("model_name");
       const frameStrideInput = document.getElementById("frame_stride");
       const showBoxesCheckbox = document.getElementById("show_boxes");
+      const doorwayConfig = document.getElementById("doorway-config");
+      const weaponModelConfig = document.getElementById("weapon-model-config");
+      const weaponMetrics = document.getElementById("weapon-metrics");
+      const labMetrics = document.getElementById("lab-metrics");
       const uploadModelName = document.getElementById("upload_model_name");
       const uploadFrameStride = document.getElementById("upload_frame_stride");
       const uploadShowBoxes = document.getElementById("upload_show_boxes");
+      const uploadDetectionMode = document.getElementById("upload_detection_mode");
+      const uploadDoorLineInputs = [
+        document.getElementById("upload_door_line_x1"),
+        document.getElementById("upload_door_line_y1"),
+        document.getElementById("upload_door_line_x2"),
+        document.getElementById("upload_door_line_y2")
+      ];
+      const doorLineInputs = [
+        document.getElementById("door-line-x1"),
+        document.getElementById("door-line-y1"),
+        document.getElementById("door-line-x2"),
+        document.getElementById("door-line-y2")
+      ];
+      const labSideInput = document.getElementById("lab-side");
+      const uploadLabSide = document.getElementById("upload_lab_side");
       const alarmCard = document.getElementById("alarm-card");
       const statusLabel = document.getElementById("status-label");
       const statusDetail = document.getElementById("status-detail");
@@ -1020,6 +1374,14 @@ PAGE_TEMPLATE = """
       const cooldownBar = document.getElementById("cooldown-bar");
       const maxCooldown = {alert_cooldown_frames};
       const confirmationHistory = {confirmation_history};
+
+      function updateModeControls() {{
+        const isLabFlow = detectionModeInput.value === "lab_flow";
+        doorwayConfig.style.display = isLabFlow ? "grid" : "none";
+        weaponModelConfig.style.display = isLabFlow ? "none" : "block";
+        weaponMetrics.style.display = isLabFlow ? "none" : "grid";
+        labMetrics.style.display = isLabFlow ? "grid" : "none";
+      }}
 
       function getFullscreenElement() {{
         return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || null;
@@ -1077,6 +1439,10 @@ PAGE_TEMPLATE = """
           const response = await fetch(`/api/stream_state?id=${{encodeURIComponent(streamId)}}`, {{ cache: "no-store" }});
           if (!response.ok) throw new Error("Could not fetch stream state.");
           const data = await response.json();
+          if (data.mode && detectionModeInput.value !== data.mode) {{
+            detectionModeInput.value = data.mode;
+            updateModeControls();
+          }}
 
           statusLabel.textContent = data.status_label || data.status || "Waiting for stream";
           statusDetail.textContent = data.error || data.status_note || "Monitoring stream.";
@@ -1094,6 +1460,12 @@ PAGE_TEMPLATE = """
           lastInferMs.textContent = Number(data.last_infer_ms || 0).toFixed(1);
           avgInferMs.textContent = Number(data.avg_infer_ms || 0).toFixed(1);
           segmentsPerSec.textContent = Number(data.segments_per_sec || 0).toFixed(2);
+          document.getElementById("entry-count").textContent = String(data.entry_count || 0);
+          document.getElementById("exit-count").textContent = String(data.exit_count || 0);
+          document.getElementById("net-flow").textContent = String(data.net_flow || 0);
+          document.getElementById("people-visible").textContent = String(data.people_visible || 0);
+          document.getElementById("lab-last-infer-ms").textContent = Number(data.last_infer_ms || 0).toFixed(1);
+          document.getElementById("lab-avg-infer-ms").textContent = Number(data.avg_infer_ms || 0).toFixed(1);
 
           // Cooldown metrics
           const cdLeft = data.cooldown_remaining || 0;
@@ -1151,6 +1523,8 @@ PAGE_TEMPLATE = """
         formMessage.textContent = "Stream started.";
         pollState();
       }});
+      detectionModeInput.addEventListener("change", updateModeControls);
+      updateModeControls();
 
       stopBtn.addEventListener("click", async () => {{
         if (!streamId) return;
@@ -1174,10 +1548,18 @@ PAGE_TEMPLATE = """
         uploadModelName.value = modelNameInput.value;
         uploadFrameStride.value = frameStrideInput.value;
         uploadShowBoxes.value = showBoxesCheckbox.checked ? "1" : "0";
+        uploadDetectionMode.value = detectionModeInput.value;
+        doorLineInputs.forEach((input, index) => {{
+          uploadDoorLineInputs[index].value = input.value;
+        }});
+        uploadLabSide.value = labSideInput.value;
       }}
       modelNameInput.addEventListener("change", syncUploadFields);
       frameStrideInput.addEventListener("change", syncUploadFields);
       showBoxesCheckbox.addEventListener("change", syncUploadFields);
+      detectionModeInput.addEventListener("change", syncUploadFields);
+      doorLineInputs.forEach((input) => input.addEventListener("change", syncUploadFields));
+      labSideInput.addEventListener("change", syncUploadFields);
       uploadForm.addEventListener("submit", syncUploadFields);
       syncUploadFields();
 
@@ -1196,8 +1578,30 @@ PAGE_TEMPLATE = """
 """
 
 
+def _parse_doorway_config(value_getter):
+    percentages = []
+    defaults = [value * 100.0 for value in DEFAULT_DOORWAY_LINE]
+    for field_name, default in zip(
+        ("door_line_x1", "door_line_y1", "door_line_x2", "door_line_y2"),
+        defaults,
+    ):
+        try:
+            value = float(value_getter(field_name, str(default)))
+        except (TypeError, ValueError):
+            raise ValueError(f"{field_name} must be a number between 0 and 100.")
+        if not math.isfinite(value) or value < 0.0 or value > 100.0:
+            raise ValueError(f"{field_name} must be between 0 and 100.")
+        percentages.append(value)
+    if math.hypot(percentages[2] - percentages[0], percentages[3] - percentages[1]) < 2.0:
+        raise ValueError("The doorway line endpoints must be at least 2% apart.")
+    lab_side = str(value_getter("lab_side", "left") or "left").strip().lower()
+    if lab_side not in {"left", "right"}:
+        raise ValueError("lab_side must be 'left' or 'right'.")
+    return tuple(value / 100.0 for value in percentages), lab_side
+
+
 class AppHandler(BaseHTTPRequestHandler):
-    server_version = "YOLOWeaponDetector/1.0"
+    server_version = "SDPSafetyMonitor/1.0"
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -1258,6 +1662,19 @@ class AppHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length).decode("utf-8")
         form = urllib.parse.parse_qs(raw)
         camera_url = urllib.parse.unquote(form.get("camera_url", [DEFAULT_CAMERA_URL])[0].strip())
+        detection_mode = form.get("detection_mode", ["weapon"])[0].strip().lower()
+        if detection_mode not in {"weapon", "lab_flow"}:
+            self._send_json({"error": "Unsupported monitoring feature."}, status=400)
+            return
+        doorway_line, lab_side = DEFAULT_DOORWAY_LINE, "left"
+        if detection_mode == "lab_flow":
+            try:
+                doorway_line, lab_side = _parse_doorway_config(
+                    lambda name, default: form.get(name, [default])[0]
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
+                return
         # Always use the CLI-validated DEFAULT_MODEL_NAME — ignore any model value
         # submitted by the form to prevent stray .pt files from being used
         model_name = DEFAULT_MODEL_NAME
@@ -1276,7 +1693,18 @@ class AppHandler(BaseHTTPRequestHandler):
         if threshold < 0.05 or threshold > 0.99:
             self._send_json({"error": "threshold must be between 0.05 and 0.99."}, status=400)
             return
-        stream_id = self._create_stream_state(camera_url, threshold, frame_stride, model_name, status_label="Connecting to camera", status_note="Violence Detection is idle.", show_boxes=show_boxes)
+        stream_id = self._create_stream_state(
+            camera_url,
+            threshold,
+            frame_stride,
+            model_name,
+            status_label="Connecting to camera",
+            status_note="SDP safety monitoring is starting.",
+            show_boxes=show_boxes,
+            detection_mode=detection_mode,
+            doorway_line=doorway_line,
+            lab_side=lab_side,
+        )
         self._send_json({"stream_id": stream_id, "status": "starting"})
 
     def _handle_upload(self):
@@ -1290,6 +1718,19 @@ class AppHandler(BaseHTTPRequestHandler):
             self._render_page("No video file was uploaded.")
             return
         threshold = float(DEFAULT_THRESHOLD)
+        detection_mode = str(form.getvalue("detection_mode", "weapon") or "weapon").strip().lower()
+        if detection_mode not in {"weapon", "lab_flow"}:
+            self._render_page("Unsupported monitoring feature.")
+            return
+        doorway_line, lab_side = DEFAULT_DOORWAY_LINE, "left"
+        if detection_mode == "lab_flow":
+            try:
+                doorway_line, lab_side = _parse_doorway_config(
+                    lambda name, default: form.getvalue(name, default)
+                )
+            except ValueError as exc:
+                self._render_page(f"Invalid doorway configuration: {exc}")
+                return
         stride_value = form.getvalue("frame_stride", str(APP_DEFAULT_FRAME_STRIDE))
         show_boxes = bool(int(form.getvalue("show_boxes", "0") or "0"))
         try:
@@ -1310,13 +1751,30 @@ class AppHandler(BaseHTTPRequestHandler):
             is_uploaded_source=True,
             realtime_playback=True,
             show_boxes=show_boxes,
+            detection_mode=detection_mode,
+            doorway_line=doorway_line,
+            lab_side=lab_side,
         )
         location = f"/?stream_id={urllib.parse.quote(stream_id)}&uploaded=1"
         self.send_response(303)
         self.send_header("Location", location)
         self.end_headers()
 
-    def _create_stream_state(self, camera_url, threshold, frame_stride, model_name, status_label="Connecting to camera", status_note="Violence Detection is idle.", is_uploaded_source=False, realtime_playback=False, show_boxes=False):
+    def _create_stream_state(
+        self,
+        camera_url,
+        threshold,
+        frame_stride,
+        model_name,
+        status_label="Connecting to camera",
+        status_note="SDP safety monitoring is idle.",
+        is_uploaded_source=False,
+        realtime_playback=False,
+        show_boxes=False,
+        detection_mode="weapon",
+        doorway_line=DEFAULT_DOORWAY_LINE,
+        lab_side="left",
+    ):
         stream_id = uuid.uuid4().hex
         state = {
             "stream_id": stream_id,
@@ -1325,6 +1783,9 @@ class AppHandler(BaseHTTPRequestHandler):
             "status_note": status_note,
             "camera_url": camera_url,
             "model_name": model_name,
+            "mode": detection_mode,
+            "doorway_line": list(doorway_line),
+            "lab_side": lab_side,
             "threshold": threshold,
             "frame_stride": frame_stride,
             "show_boxes": bool(show_boxes),
@@ -1332,6 +1793,10 @@ class AppHandler(BaseHTTPRequestHandler):
             "raw_score": 0.0,
             "max_recent_score": 0.0,
             "processed_samples": 0,
+            "entry_count": 0,
+            "exit_count": 0,
+            "net_flow": 0,
+            "people_visible": 0,
             "last_frame_index": 0,
             "is_danger": False,
             "is_cooldown": False,
@@ -1355,11 +1820,26 @@ class AppHandler(BaseHTTPRequestHandler):
             "realtime_playback": bool(realtime_playback),
             "show_boxes": bool(show_boxes),
         }
-        worker = threading.Thread(
-            target=stream_worker,
-            args=(stream_id, camera_url, threshold, frame_stride, model_name, bool(is_uploaded_source), bool(realtime_playback), bool(show_boxes)),
-            daemon=True,
-        )
+        if detection_mode == "lab_flow":
+            worker = threading.Thread(
+                target=lab_flow_worker,
+                args=(
+                    stream_id,
+                    camera_url,
+                    frame_stride,
+                    bool(is_uploaded_source),
+                    bool(realtime_playback),
+                    doorway_line,
+                    lab_side,
+                ),
+                daemon=True,
+            )
+        else:
+            worker = threading.Thread(
+                target=stream_worker,
+                args=(stream_id, camera_url, threshold, frame_stride, model_name, bool(is_uploaded_source), bool(realtime_playback), bool(show_boxes)),
+                daemon=True,
+            )
         state["thread"] = worker
         with STREAMS_LOCK:
             STREAMS[stream_id] = state
@@ -1379,7 +1859,7 @@ class AppHandler(BaseHTTPRequestHandler):
             payload["status_note"] = "Stream was stopped by user request."
         self._send_json({"ok": True})
 
-    def _render_page(self, message="Violence Detection is ready."):
+    def _render_page(self, message="SDP safety monitoring is ready."):
         camera_options = []
         for camera_name, _ in CAMERA_PRESETS.items():
             selected = " selected" if camera_name == "Camera 3" else ""
@@ -1399,6 +1879,11 @@ class AppHandler(BaseHTTPRequestHandler):
             alert_cooldown_frames=int(ALERT_COOLDOWN_FRAMES),
             confirmation_history=int(CONFIRMATION_HISTORY),
             ema_alpha=float(SCORE_EMA_ALPHA),
+            person_model_name=html.escape(PERSON_MODEL_NAME),
+            door_line_x1=round(DEFAULT_DOORWAY_LINE[0] * 100),
+            door_line_y1=round(DEFAULT_DOORWAY_LINE[1] * 100),
+            door_line_x2=round(DEFAULT_DOORWAY_LINE[2] * 100),
+            door_line_y2=round(DEFAULT_DOORWAY_LINE[3] * 100),
         )
         self._send_html(page)
 
@@ -1423,10 +1908,12 @@ class AppHandler(BaseHTTPRequestHandler):
 
 
 def parse_cli_args():
-    parser = argparse.ArgumentParser(description="Violence Detection real-time stream app")
+    parser = argparse.ArgumentParser(description="SDP safety monitoring real-time stream app")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8013, type=int)
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
+    parser.add_argument("--person-model-name", default=PERSON_MODEL_NAME,
+                        help="YOLO model with a person class for lab entry/exit monitoring")
     parser.add_argument("--cache-dir", default=str(Path("cache")))
     parser.add_argument("--instruct-path", default="")
     parser.add_argument("--segment-len", default=SEGMENT_LEN, type=int)
@@ -1467,10 +1954,12 @@ def main(
     confirm_window=CONFIRMATION_WINDOW,
     confirm_history=CONFIRMATION_HISTORY,
     ema_alpha=SCORE_EMA_ALPHA,
+    person_model_name=PERSON_MODEL_NAME,
 ):
     global SEGMENT_LEN, SELECTED_FRAMES_PER_SEGMENT, INFERENCE_EVERY_SAMPLED_FRAMES
     global APP_DEFAULT_FRAME_STRIDE, APP_CONFIDENCE_THRESHOLD, APP_IOU_THRESHOLD, APP_IMAGE_SIZE, APP_INSTRUCT_PATH
     global DEFAULT_MODEL_NAME, MODEL_CHOICES
+    global PERSON_MODEL_NAME
     global DEFAULT_THRESHOLD, ALERT_COOLDOWN_FRAMES, CONFIRMATION_WINDOW, CONFIRMATION_HISTORY, SCORE_EMA_ALPHA
 
     _ = cache_dir
@@ -1506,6 +1995,10 @@ def main(
         raise FileNotFoundError(f"Model not found: {resolved_model_path}")
 
     model_name = str(resolved_model_path)
+    PERSON_MODEL_NAME = str(person_model_name).strip() or "yolo11n.pt"
+    person_model_path = _resolve_input_path(PERSON_MODEL_NAME)
+    if person_model_path.exists() and person_model_path.is_file():
+        PERSON_MODEL_NAME = str(person_model_path)
 
     # Force DEFAULT_MODEL_NAME and MODEL_PRESETS to the validated CLI model
     # so that the UI form and stream_worker always use the same weights
@@ -1515,8 +2008,9 @@ def main(
         MODEL_CHOICES = [model_name] + MODEL_CHOICES
 
     print(f"[OK] Model validated: {model_name}", flush=True)
-    print(f"Violence Detection demo running at http://{host}:{port}")
+    print(f"SDP safety monitor running at http://{host}:{port}")
     print(f"Model: {model_name}")
+    print(f"Person flow model: {PERSON_MODEL_NAME}")
     print(f"conf_thres={APP_CONFIDENCE_THRESHOLD:.2f}, iou_thres={APP_IOU_THRESHOLD:.2f}, imgsz={APP_IMAGE_SIZE}")
     print(f"alert_thres={DEFAULT_THRESHOLD:.2f}")
     print(f"Temporal smoothing: cooldown={ALERT_COOLDOWN_FRAMES} frames, "
@@ -1545,6 +2039,7 @@ if __name__ == "__main__":
         host=cli_args.host,
         port=cli_args.port,
         model_name=cli_args.model_name,
+        person_model_name=cli_args.person_model_name,
         cache_dir=cli_args.cache_dir,
         instruct_path=cli_args.instruct_path,
         segment_len=cli_args.segment_len,
