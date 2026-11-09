@@ -1,0 +1,5 @@
+**Meeting 8: Project Progress Review with Maregu**
+
+**Date: 9 November**
+
+I met with Maregu to explain the work we have completed so far on the SDP project. I discussed our progress, including the photos and videos we collected for the dataset, and explained how we plan to use them to train and test the system.
