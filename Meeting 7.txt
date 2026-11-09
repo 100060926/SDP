@@ -1,0 +1,5 @@
+*Meeting 7: Taking Photos and Videos for the Dataset*
+
+*Date: 2 November*
+
+We met to take photos and record videos for the SDP project’s dataset, including footage of a person entering and leaving the area. The aim was to collect examples that could help train and test the system’s ability to detect people and track their movement.
