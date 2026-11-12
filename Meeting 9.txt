@@ -1,0 +1,5 @@
+### Meeting 9: Stick Dataset Collection Planning with Maregu
+
+**Date: 10 November**
+
+We coordinated with Maregu to arrange a session to capture photos and videos of a stick, one of the objects we want our People Monitoring system to detect. The collected data will be used to build a dataset for training and testing stick detection.
