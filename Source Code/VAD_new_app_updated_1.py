@@ -51,10 +51,18 @@ CAMERA_PRESETS = OrderedDict(
 DEFAULT_CAMERA_URL = CAMERA_PRESETS["Camera 3"]
 DEFAULT_THRESHOLD = 0.6 # lowered from 0.50
 PERSON_MODEL_NAME = "yolo11n.pt"
-DEFAULT_DOORWAY_LINE = (0.50, 0.08, 0.50, 0.92)
-DOOR_CROSSING_DEADBAND_PX = 12
+DEFAULT_VIRTUAL_LINE = (0.22, 0.307, 0.366, 0.256)
+LINE_CROSSING_DEADBAND_PX = 12
 TRACK_CLEANUP_FRAMES = 90
 TRACK_CROSSING_COOLDOWN_FRAMES = 12
+TRACK_CROSSING_CONFIRMATION_FRAMES = 10
+TRACK_CROSSING_MIN_DISTANCE_RATIO = 0.05
+TRACK_SIDE_REARM_DISTANCE_RATIO = 0.08
+TRACK_CROSSING_PENDING_TIMEOUT_FRAMES = 5
+TRACK_CROSSING_APPROACH_FRAMES = 2
+TRACK_CROSSING_LOST_CONFIRMATION_FRAMES = 10
+PERSON_CROSSING_POINT_VERTICAL_RATIO = 0.85
+TRACK_CROSSING_ENDPOINT_EXTENSION_RATIO = 0.15
 
 SEGMENT_LEN = 1
 SELECTED_FRAMES_PER_SEGMENT = 1
@@ -295,7 +303,16 @@ def sample_recent_uniform(frames_bgr, k=8):
     return [frames_bgr[i] for i in idx]
 
 
-def encode_preview(frame_bgr, status_text, score, threshold, is_danger=False, is_cooldown=False, cooldown_remaining=0):
+def encode_preview(
+    frame_bgr,
+    status_text,
+    score,
+    threshold,
+    is_danger=False,
+    is_cooldown=False,
+    cooldown_remaining=0,
+    show_status_banner=True,
+):
     preview = cv2.resize(frame_bgr, (PREVIEW_WIDTH, PREVIEW_HEIGHT))
     danger = bool(is_danger)
     if not danger:
@@ -308,12 +325,12 @@ def encode_preview(frame_bgr, status_text, score, threshold, is_danger=False, is
     else:
         overlay_color = (20, 20, 95)
         text_color = (70, 70, 255)
-    cv2.rectangle(preview, (0, 0), (PREVIEW_WIDTH, 110), overlay_color, -1)
-    cv2.putText(preview, str(status_text or "Monitoring stream"), (24, 54), cv2.FONT_HERSHEY_DUPLEX, 1.0, text_color, 2, cv2.LINE_AA)
-    # Show cooldown counter during carry-over state
-    if is_cooldown and cooldown_remaining > 0:
-        cd_text = f"Cooldown: {cooldown_remaining} frames remaining"
-        cv2.putText(preview, cd_text, (24, 90), cv2.FONT_HERSHEY_DUPLEX, 0.6, text_color, 1, cv2.LINE_AA)
+    if show_status_banner:
+        cv2.rectangle(preview, (0, 0), (PREVIEW_WIDTH, 110), overlay_color, -1)
+        cv2.putText(preview, str(status_text or "Monitoring stream"), (24, 54), cv2.FONT_HERSHEY_DUPLEX, 1.0, text_color, 2, cv2.LINE_AA)
+        if is_cooldown and cooldown_remaining > 0:
+            cd_text = f"Cooldown: {cooldown_remaining} frames remaining"
+            cv2.putText(preview, cd_text, (24, 90), cv2.FONT_HERSHEY_DUPLEX, 0.6, text_color, 1, cv2.LINE_AA)
     ok, encoded = cv2.imencode(".jpg", preview, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
     if not ok:
         raise RuntimeError("Could not encode preview frame.")
@@ -560,7 +577,7 @@ def _line_signed_distance(point, line):
     return (dx * (point[1] - y1) - dy * (point[0] - x1)) / line_length
 
 
-def _crosses_doorway_segment(previous_point, current_point, line):
+def _crosses_virtual_line_segment(previous_point, current_point, line):
     previous_distance = _line_signed_distance(previous_point, line)
     current_distance = _line_signed_distance(current_point, line)
     if previous_distance == current_distance:
@@ -580,6 +597,265 @@ def _crosses_doorway_segment(previous_point, current_point, line):
         (crossing_x - line_x1) * line_dx + (crossing_y - line_y1) * line_dy
     ) / line_length_squared
     return 0.0 <= projection <= 1.0
+
+
+def _point_near_virtual_line_segment(
+    point, line, max_distance, endpoint_extension=0.0
+):
+    line_x1, line_y1, line_x2, line_y2 = line
+    line_dx = line_x2 - line_x1
+    line_dy = line_y2 - line_y1
+    line_length_squared = line_dx * line_dx + line_dy * line_dy
+    if line_length_squared == 0:
+        return False
+    projection = (
+        (point[0] - line_x1) * line_dx + (point[1] - line_y1) * line_dy
+    ) / line_length_squared
+    return (
+        -endpoint_extension <= projection <= 1.0 + endpoint_extension
+        and abs(_line_signed_distance(point, line)) <= max_distance
+    )
+
+
+def update_person_flow(tracks, detections, frame_index, line, inside_side):
+    entries = 0
+    exits = 0
+    event = ""
+    inside_sign = 1 if inside_side == "below" else -1
+    line_length = math.hypot(line[2] - line[0], line[3] - line[1])
+    minimum_crossing_distance = max(
+        LINE_CROSSING_DEADBAND_PX * 2,
+        line_length * TRACK_CROSSING_MIN_DISTANCE_RATIO,
+    )
+    rearm_distance = max(
+        LINE_CROSSING_DEADBAND_PX * 2,
+        line_length * TRACK_SIDE_REARM_DISTANCE_RATIO,
+    )
+    near_crossing_distance = max(
+        LINE_CROSSING_DEADBAND_PX * 2,
+        line_length * 0.08,
+    )
+
+    for detection in detections:
+        track_id = detection["track_id"]
+        if track_id is None:
+            continue
+        x1, y1, x2, y2 = detection["bbox"]
+        point = (
+            (x1 + x2) / 2.0,
+            y1 + (y2 - y1) * PERSON_CROSSING_POINT_VERTICAL_RATIO,
+        )
+        distance = _line_signed_distance(point, line)
+        side = (
+            1
+            if distance > LINE_CROSSING_DEADBAND_PX
+            else -1
+            if distance < -LINE_CROSSING_DEADBAND_PX
+            else 0
+        )
+        previous = tracks.get(track_id)
+        if previous is None:
+            previous = {
+                "last_crossing": -TRACK_CLEANUP_FRAMES,
+                "side": side,
+                "point": point,
+                "last_side": side,
+                "candidate_side": 0,
+                "candidate_count": 0,
+                "candidate_last_seen": frame_index,
+                "candidate_max_distance": 0.0,
+                "rearmed_since_crossing": False,
+                "distance": distance,
+                "approach_frames": 0,
+                "approached_line": False,
+            }
+        else:
+            previous_distance = previous.get("distance", distance)
+            stable_side = previous["side"]
+            if side and stable_side and side == stable_side:
+                if abs(distance) < abs(previous_distance) - 1:
+                    previous["approach_frames"] += 1
+                elif abs(distance) > abs(previous_distance) + 3:
+                    previous["approach_frames"] = 0
+                    if abs(distance) > near_crossing_distance + LINE_CROSSING_DEADBAND_PX:
+                        previous["approached_line"] = False
+                if (
+                    previous["approach_frames"] >= TRACK_CROSSING_APPROACH_FRAMES
+                    and abs(distance) <= near_crossing_distance
+                ):
+                    previous["approached_line"] = True
+            elif side and stable_side and side != stable_side:
+                previous["approach_frames"] = 0
+                previous["approached_line"] = False
+
+        if previous is not None and side:
+            stable_side = previous["side"]
+            candidate_side = previous.get("candidate_side", 0)
+            if stable_side == 0:
+                if candidate_side == side:
+                    previous["candidate_count"] += 1
+                    previous["candidate_last_seen"] = frame_index
+                    previous["candidate_max_distance"] = max(
+                        previous["candidate_max_distance"], abs(distance)
+                    )
+                elif _point_near_virtual_line_segment(
+                    previous["point"],
+                    line,
+                    near_crossing_distance,
+                    TRACK_CROSSING_ENDPOINT_EXTENSION_RATIO,
+                ):
+                    previous["candidate_side"] = side
+                    previous["candidate_count"] = 1
+                    previous["candidate_last_seen"] = frame_index
+                    previous["candidate_max_distance"] = abs(distance)
+            elif side == stable_side:
+                previous["candidate_side"] = 0
+                previous["candidate_count"] = 0
+                previous["candidate_max_distance"] = 0.0
+            else:
+                if candidate_side != side:
+                    crossed_line = _crosses_virtual_line_segment(
+                        previous["point"], point, line
+                    )
+                    departed_deadband = (
+                        previous.get("last_side", stable_side) == 0
+                        and _point_near_virtual_line_segment(
+                            previous["point"], line, LINE_CROSSING_DEADBAND_PX
+                        )
+                    )
+                    if crossed_line or departed_deadband or candidate_side:
+                        previous["candidate_side"] = side
+                        previous["candidate_count"] = 1
+                        previous["candidate_last_seen"] = frame_index
+                        previous["candidate_max_distance"] = abs(distance)
+                else:
+                    previous["candidate_count"] += 1
+                    previous["candidate_last_seen"] = frame_index
+                    previous["candidate_max_distance"] = max(
+                        previous["candidate_max_distance"], abs(distance)
+                    )
+
+                if (
+                    previous["candidate_side"] == side
+                    and previous["last_crossing"] >= 0
+                    and not previous["rearmed_since_crossing"]
+                    and frame_index - previous["last_crossing"]
+                    <= TRACK_CROSSING_COOLDOWN_FRAMES
+                    and abs(distance) >= rearm_distance
+                    and previous["candidate_count"]
+                    < TRACK_CROSSING_CONFIRMATION_FRAMES
+                ):
+                    previous["side"] = side
+                    previous["candidate_side"] = 0
+                    previous["candidate_count"] = 0
+                    previous["candidate_max_distance"] = 0.0
+                    previous["rearmed_since_crossing"] = True
+                elif (
+                    previous["candidate_side"] == side
+                    and previous["candidate_count"]
+                    >= TRACK_CROSSING_CONFIRMATION_FRAMES
+                    and abs(distance) >= minimum_crossing_distance
+                    and frame_index - previous["last_crossing"]
+                    >= TRACK_CROSSING_COOLDOWN_FRAMES
+                ):
+                    if side == inside_sign:
+                        entries += 1
+                        event = "entry"
+                    else:
+                        exits += 1
+                        event = "exit"
+                    previous["side"] = side
+                    previous["last_crossing"] = frame_index
+                    previous["candidate_side"] = 0
+                    previous["candidate_count"] = 0
+                    previous["candidate_max_distance"] = 0.0
+                    previous["rearmed_since_crossing"] = False
+                    previous["approached_line"] = False
+
+            if (
+                previous["side"] == 0
+                and previous["candidate_side"] == side
+                and previous["candidate_count"] >= TRACK_CROSSING_CONFIRMATION_FRAMES
+                and abs(distance) >= minimum_crossing_distance
+            ):
+                if side == inside_sign:
+                    entries += 1
+                    event = "entry"
+                else:
+                    exits += 1
+                    event = "exit"
+                previous["side"] = side
+                previous["last_crossing"] = frame_index
+                previous["candidate_side"] = 0
+                previous["candidate_count"] = 0
+                previous["candidate_max_distance"] = 0.0
+                previous["rearmed_since_crossing"] = False
+                previous["approached_line"] = False
+
+        previous["last_seen"] = frame_index
+        previous["last_side"] = side
+        previous["distance"] = distance
+        if side == 0 and previous["candidate_side"]:
+            previous.setdefault("candidate_last_seen", frame_index)
+        if side:
+            previous["point"] = point
+        tracks[track_id] = previous
+
+    for track in tracks.values():
+        if (
+            track["candidate_side"]
+            and frame_index - track["candidate_last_seen"]
+            >= TRACK_CROSSING_PENDING_TIMEOUT_FRAMES
+            and track["side"] != 0
+            and track["candidate_count"] >= 3
+            and track["candidate_max_distance"] >= minimum_crossing_distance
+        ):
+            if track["candidate_side"] == inside_sign:
+                entries += 1
+                event = "entry"
+            else:
+                exits += 1
+                event = "exit"
+            track["side"] = track["candidate_side"]
+            track["last_crossing"] = frame_index
+            track["candidate_side"] = 0
+            track["candidate_count"] = 0
+            track["candidate_max_distance"] = 0.0
+            track["rearmed_since_crossing"] = False
+
+        if (
+            not track.get("crossing_lost_confirmed", False)
+            and frame_index - track["last_seen"]
+            >= TRACK_CROSSING_LOST_CONFIRMATION_FRAMES
+            and track["side"] != 0
+            and track.get("last_side") == track["side"]
+            and track.get("approached_line", False)
+            and abs(track.get("distance", 0.0)) > LINE_CROSSING_DEADBAND_PX
+            and abs(track.get("distance", float("inf"))) <= near_crossing_distance
+            and _point_near_virtual_line_segment(
+                track["point"], line, near_crossing_distance
+            )
+        ):
+            if track["side"] == inside_sign:
+                exits += 1
+                event = "exit"
+            else:
+                entries += 1
+                event = "entry"
+            track["side"] = -track["side"]
+            track["last_crossing"] = frame_index
+            track["crossing_lost_confirmed"] = True
+            track["approached_line"] = False
+            track["candidate_side"] = 0
+            track["candidate_count"] = 0
+
+    for track_id in [
+        track_id
+        for track_id, track in tracks.items()
+        if frame_index - track["last_seen"] > TRACK_CLEANUP_FRAMES
+    ]:
+        del tracks[track_id]
+    return entries, exits, event
 
 
 class YOLOPersonFlowTracker:
@@ -668,13 +944,35 @@ def set_stream_state(stream_id, **updates):
             STREAMS[stream_id].update(updates)
 
 
-def stream_worker(stream_id, camera_url, threshold, frame_stride, model_name, is_uploaded_source=False, realtime_playback=False, show_boxes=False):
+def stream_worker(
+    stream_id,
+    camera_url,
+    threshold,
+    frame_stride,
+    model_name,
+    is_uploaded_source=False,
+    realtime_playback=False,
+    show_boxes=False,
+    virtual_line=DEFAULT_VIRTUAL_LINE,
+    inside_side="below",
+):
     analyzer = get_analyzer(model_name=model_name)
     cap = cv2.VideoCapture(camera_url)
     if not cap.isOpened():
         set_stream_state(stream_id, status="error", error="Could not open source stream.")
         return
+    try:
+        person_tracker = YOLOPersonFlowTracker(PERSON_MODEL_NAME)
+    except Exception as exc:
+        cap.release()
+        set_stream_state(stream_id, status="error", error=f"Could not initialize person tracking: {type(exc).__name__}: {exc}")
+        return
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    line_ratio = tuple(float(value) for value in virtual_line)
+    person_tracks = {}
+    person_detections = []
+    entry_count = 0
+    exit_count = 0
     sampled_count = 0
     score_history = deque(maxlen=60)
     latency_history_ms = deque(maxlen=40)
@@ -749,6 +1047,8 @@ def stream_worker(stream_id, camera_url, threshold, frame_stride, model_name, is
                 state = STREAMS.get(stream_id)
                 if state is None or state.get("stop_requested"):
                     break
+                updated_inside_side = state.get("inside_side", inside_side)
+            inside_side = updated_inside_side
             ok, frame = cap.read()
             if not ok:
                 if is_uploaded_source:
@@ -758,6 +1058,19 @@ def stream_worker(stream_id, camera_url, threshold, frame_stride, model_name, is
             if frame_index % max(1, int(frame_stride)) == 0:
                 sampled_count += 1
                 queue_infer_job([frame.copy()])
+                person_detections = person_tracker.track(frame)
+                height, width = frame.shape[:2]
+                line = (
+                    line_ratio[0] * width,
+                    line_ratio[1] * height,
+                    line_ratio[2] * width,
+                    line_ratio[3] * height,
+                )
+                new_entries, new_exits, _ = update_person_flow(
+                    person_tracks, person_detections, frame_index, line, inside_side
+                )
+                entry_count += new_entries
+                exit_count += new_exits
 
             updated = {}
             with infer_lock:
@@ -904,7 +1217,30 @@ def stream_worker(stream_id, camera_url, threshold, frame_stride, model_name, is
 
 
             # Use annotated frame for preview if available, otherwise raw frame
-            display_frame = last_annotated_frame if last_annotated_frame is not None else frame
+            display_frame = (last_annotated_frame if last_annotated_frame is not None else frame).copy()
+            height, width = display_frame.shape[:2]
+            line = (
+                int(line_ratio[0] * width),
+                int(line_ratio[1] * height),
+                int(line_ratio[2] * width),
+                int(line_ratio[3] * height),
+            )
+            cv2.line(display_frame, line[:2], line[2:], (0, 220, 255), 3, cv2.LINE_AA)
+            cv2.circle(display_frame, line[:2], 7, (0, 220, 255), -1, cv2.LINE_AA)
+            cv2.circle(display_frame, line[2:], 7, (0, 220, 255), -1, cv2.LINE_AA)
+            for detection in person_detections:
+                x1, y1, x2, y2 = [int(value) for value in detection["bbox"]]
+                cv2.rectangle(display_frame, (x1, y1), (x2, y2), (60, 235, 130), 2)
+            cv2.putText(
+                display_frame,
+                f"Entered: {entry_count}  Exited: {exit_count}",
+                (20, max(30, height - 20)),
+                cv2.FONT_HERSHEY_DUPLEX,
+                0.8,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
             current_score = float(updated.get("current_score", state.get("current_score", 0.0)))
             current_is_danger = bool(updated.get("is_danger", state.get("is_danger", False)))
             current_is_cooldown = bool(updated.get("is_cooldown", state.get("is_cooldown", False)))
@@ -919,12 +1255,17 @@ def stream_worker(stream_id, camera_url, threshold, frame_stride, model_name, is
                 is_danger=current_is_danger,
                 is_cooldown=current_is_cooldown,
                 cooldown_remaining=current_cooldown_remaining,
+                show_status_banner=bool(state.get("show_status_banner", True)),
             )
             updated.update({
                 "processed_samples": sampled_count,
                 "latest_frame": preview,
                 "last_frame_index": frame_index,
                 "last_frame_time_sec": float(frame_index / fps),
+                "entry_count": entry_count,
+                "exit_count": exit_count,
+                "net_flow": entry_count - exit_count,
+                "people_visible": len(person_detections),
             })
             set_stream_state(stream_id, **updated)
             frame_index += 1
@@ -950,7 +1291,8 @@ def stream_worker(stream_id, camera_url, threshold, frame_stride, model_name, is
                         state["status_note"] = (
                             "Video summary: "
                             f"total_objects={total_object_hits}, total_weapon_detections={total_weapon_hits}, "
-                            f"confirmed_alert_frames={total_confirmed_alert_frames}."
+                            f"confirmed_alert_frames={total_confirmed_alert_frames}; "
+                            f"people entries={entry_count}, exits={exit_count}."
                         )
                         if total_confirmed_alert_frames > 0:
                             state["output_label"] = "abnormal"
@@ -975,7 +1317,7 @@ def lab_flow_worker(
    frame_stride,
    is_uploaded_source,
    realtime_playback,
-   doorway_line,
+   virtual_line,
    lab_side,
 ):
    cap = cv2.VideoCapture(camera_url)
@@ -986,7 +1328,7 @@ def lab_flow_worker(
    try:
        tracker = YOLOPersonFlowTracker(PERSON_MODEL_NAME)
        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-       line_ratio = tuple(float(value) for value in doorway_line)
+       line_ratio = tuple(float(value) for value in virtual_line)
        inside_sign = 1 if lab_side == "left" else -1
        entries = 0
        exits = 0
@@ -1002,8 +1344,8 @@ def lab_flow_worker(
            status="running",
            status_label="Lab flow: waiting for people",
            status_note=(
-               f"Tracking people with {PERSON_MODEL_NAME}. Configure the line across "
-               "the sliding-door threshold; the selected lab side determines entry direction."
+               f"Tracking people with {PERSON_MODEL_NAME}. The virtual line marks where "
+               "people cross; the selected lab side determines entry direction."
            ),
            fps=float(fps),
        )
@@ -1036,55 +1378,15 @@ def lab_flow_worker(
                    line_ratio[2] * width,
                    line_ratio[3] * height,
                )
-               for detection in current_detections:
-                   track_id = detection["track_id"]
-                   if track_id is None:
-                       continue
-                   x1, y1, x2, y2 = detection["bbox"]
-                   point = ((x1 + x2) / 2.0, y2)
-                   distance = _line_signed_distance(point, line)
-                   side = (
-                       1
-                       if distance > DOOR_CROSSING_DEADBAND_PX
-                       else -1
-                       if distance < -DOOR_CROSSING_DEADBAND_PX
-                       else 0
-                   )
-                   previous = tracks.get(track_id)
-                   if previous is not None and side and previous["side"] and side != previous["side"]:
-                       recently_counted = (
-                           frame_index - previous["last_crossing"]
-                           < TRACK_CROSSING_COOLDOWN_FRAMES
-                       )
-                       if (
-                           not recently_counted
-                           and frame_index - previous["last_seen"] <= TRACK_CLEANUP_FRAMES
-                           and _crosses_doorway_segment(previous["point"], point, line)
-                       ):
-                           if side == inside_sign:
-                               entries += 1
-                               event = "entry"
-                           else:
-                               exits += 1
-                               event = "exit"
-                           previous["last_crossing"] = frame_index
-                   if previous is None:
-                       previous = {"last_crossing": -TRACK_CLEANUP_FRAMES}
-                   previous["point"] = point
-                   previous["last_seen"] = frame_index
-                   if side:
-                       previous["side"] = side
-                   else:
-                       previous.setdefault("side", 0)
-                   tracks[track_id] = previous
-
-               expired_tracks = [
-                   track_id
-                   for track_id, track in tracks.items()
-                   if frame_index - track["last_seen"] > TRACK_CLEANUP_FRAMES
-               ]
-               for track_id in expired_tracks:
-                   del tracks[track_id]
+               new_entries, new_exits, event = update_person_flow(
+                   tracks,
+                   current_detections,
+                   frame_index,
+                   line,
+                   "below" if inside_sign == 1 else "above",
+               )
+               entries += new_entries
+               exits += new_exits
 
            height, width = frame.shape[:2]
            line = (
@@ -1114,7 +1416,7 @@ def lab_flow_worker(
                )
 
            visible_people = len(current_detections)
-           status_text = f"LAB FLOW  IN {entries}  OUT {exits}"
+           status_text = f"VIRTUAL LINE  IN {entries}  OUT {exits}"
            cv2.putText(
                preview,
                f"People in view: {visible_people}",
@@ -1132,12 +1434,12 @@ def lab_flow_worker(
                status="running",
                status_label=f"Lab flow: {entries} entered / {exits} exited",
                status_note=(
-                   f"Last event: {event or 'none'}; line is yellow; detected people are green. "
+                   f"Last event: {event or 'none'}; virtual line is yellow; detected people are green. "
                    f"Net flow since monitoring started: {entries - exits}."
                ),
                output_label="lab_flow",
                anomaly_type="people",
-               reason_code="doorway_crossing" if event else "monitoring",
+               reason_code="virtual_line_crossing" if event else "monitoring",
                short_description=(
                    f"Entries: {entries}; exits: {exits}; people currently in view: {visible_people}."
                ),
@@ -1203,7 +1505,7 @@ PAGE_TEMPLATE = """
     .alarm.cooldown {{ background:rgba(76,15,23,0.66); border-color:rgba(255,98,118,0.6); }}
     .video-head {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }}
     .video-shell {{ border-radius:16px; overflow:hidden; background:#000; }}
-    .video-frame {{ width:100%; border-radius:16px; border:1px solid var(--line); min-height:260px; object-fit:cover; background:#000; }}
+    .video-frame {{ display:block; width:100%; aspect-ratio:16 / 9; height:auto; border-radius:16px; border:1px solid var(--line); object-fit:fill; background:#000; }}
     button.fs-btn {{ width:auto; margin-top:0; padding:8px 12px; border-radius:9px; background:linear-gradient(90deg,#88b4d4,#5bc9d8); color:#031322; font-size:0.85rem; }}
     .video-shell:fullscreen {{ width:100vw; height:100vh; border-radius:0; display:flex; align-items:center; justify-content:center; }}
     .video-shell:-webkit-full-screen {{ width:100vw; height:100vh; border-radius:0; display:flex; align-items:center; justify-content:center; }}
@@ -1215,10 +1517,10 @@ PAGE_TEMPLATE = """
     .k {{ color:var(--muted); font-size:0.72rem; text-transform:uppercase; }}
     .v {{ font-size:1.2rem; font-weight:800; margin-top:4px; }}
     .help {{ color:var(--muted); white-space:pre-wrap; word-break:break-word; }}
-    .doorway-config {{ display:none; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; margin:12px 0; }}
-    .doorway-config p {{ grid-column:1 / -1; margin:0; }}
-    .doorway-config label {{ margin:0; }}
-    .doorway-config input, .doorway-config select {{ margin-top:6px; }}
+    .virtual-line-config {{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; margin:12px 0; }}
+    .virtual-line-config p {{ grid-column:1 / -1; margin:0; }}
+    .virtual-line-config label {{ margin:0; }}
+    .virtual-line-config input, .virtual-line-config select {{ margin-top:6px; }}
     .two-up {{ display:grid; grid-template-columns: 1fr 1fr; gap:18px; }}
     .subhead {{ margin: 0 0 10px 0; color:var(--muted); font-size:0.9rem; text-transform:uppercase; letter-spacing:0.06em; }}
     .cooldown-bar-wrap {{ margin-top:10px; background: rgba(255,255,255,0.07); border-radius:8px; height:8px; overflow:hidden; }}
@@ -1233,18 +1535,13 @@ PAGE_TEMPLATE = """
         <h2>SDP Safety Monitor</h2>
         <form id="stream-form">
           <div><label for="camera_preset">Camera</label><select id="camera_preset">{camera_preset_options}</select></div>
-          <div><label for="detection_mode">Monitoring feature</label><select id="detection_mode" name="detection_mode"><option value="weapon">Weapon detection</option><option value="lab_flow">Lab entry / exit</option></select></div>
-          <div id="weapon-model-config"><label for="model_name">Weapon model</label><select id="model_name" name="model_name">{model_options}</select></div>
+          <div><label for="model_name">Weapon model</label><select id="model_name" name="model_name">{model_options}</select></div>
           <div><label for="frame_stride">Sampling Stride</label><input id="frame_stride" name="frame_stride" type="number" min="1" max="16" step="1" value="{default_frame_stride}"></div>
           <div><label><input id="show_boxes" name="show_boxes" type="checkbox" value="1"> Show boxes and classes</label></div>
-          <div id="doorway-config" class="doorway-config">
-            <p class="help">Place the yellow line across the sliding-door threshold. Coordinates are percentages of the camera image. The side is interpreted relative to the line from point 1 to point 2. Counts start when monitoring starts; this tracks passage, not the door panel's open/closed state. Person detection uses the included {person_model_name} model. Override it with --person-model-name.</p>
-            <label>Point 1 X (%)<input id="door-line-x1" name="door_line_x1" type="number" min="0" max="100" step="1" value="{door_line_x1}"></label>
-            <label>Point 1 Y (%)<input id="door-line-y1" name="door_line_y1" type="number" min="0" max="100" step="1" value="{door_line_y1}"></label>
-            <label>Point 2 X (%)<input id="door-line-x2" name="door_line_x2" type="number" min="0" max="100" step="1" value="{door_line_x2}"></label>
-            <label>Point 2 Y (%)<input id="door-line-y2" name="door_line_y2" type="number" min="0" max="100" step="1" value="{door_line_y2}"></label>
-            <label>Lab is on the
-              <select id="lab-side" name="lab_side"><option value="left">Left side</option><option value="right">Right side</option></select>
+          <div id="virtual-line-config" class="virtual-line-config">
+            <p class="help">The entry/exit counting line is fixed across the sliding-door threshold.</p>
+            <label>Lab is
+              <select id="inside-side" name="inside_side"><option value="above">Above the line</option><option value="below" selected>Below the line</option></select>
             </label>
           </div>
           <button type="submit">Start Monitor</button><button id="stop-btn" type="button" class="stop">Stop Stream</button>
@@ -1254,12 +1551,7 @@ PAGE_TEMPLATE = """
           <input id="upload_model_name" name="model_name" type="hidden" value="{default_model_key}">
           <input id="upload_frame_stride" name="frame_stride" type="hidden" value="{default_frame_stride}">
           <input id="upload_show_boxes" name="show_boxes" type="hidden" value="0">
-          <input id="upload_detection_mode" name="detection_mode" type="hidden" value="weapon">
-          <input id="upload_door_line_x1" name="door_line_x1" type="hidden" value="{door_line_x1}">
-          <input id="upload_door_line_y1" name="door_line_y1" type="hidden" value="{door_line_y1}">
-          <input id="upload_door_line_x2" name="door_line_x2" type="hidden" value="{door_line_x2}">
-          <input id="upload_door_line_y2" name="door_line_y2" type="hidden" value="{door_line_y2}">
-          <input id="upload_lab_side" name="lab_side" type="hidden" value="left">
+          <input id="upload_inside_side" name="inside_side" type="hidden" value="below">
           <button type="submit">Analyze Uploaded Video</button>
         </form>
         <p id="form-message" class="help">{message}</p>
@@ -1283,6 +1575,7 @@ PAGE_TEMPLATE = """
         <div>
           <div class="video-head">
             <div class="subhead">Live preview</div>
+            <button id="status-banner-btn" type="button" class="fs-btn" style="display:none" aria-pressed="true">Hide Status Banner</button>
             <button id="fullscreen-btn" type="button" class="fs-btn" style="display:none">Full Screen</button>
           </div>
           <div id="live-frame-shell" class="video-shell">
@@ -1303,14 +1596,10 @@ PAGE_TEMPLATE = """
         <div class="metric highlight"><div class="k">Cooldown frames left</div><div id="cooldown-remaining" class="v">0</div></div>
         <div class="metric highlight"><div class="k">Hits / window</div><div id="recent-hits" class="v">0 / {confirmation_history}</div></div>
         <div class="metric highlight"><div class="k">EMA alpha</div><div id="ema-alpha" class="v">{ema_alpha}</div></div>
-      </div>
-      <div id="lab-metrics" class="metrics" style="display:none">
         <div class="metric highlight"><div class="k">Entries</div><div id="entry-count" class="v">0</div></div>
         <div class="metric highlight"><div class="k">Exits</div><div id="exit-count" class="v">0</div></div>
         <div class="metric"><div class="k">Net flow since start</div><div id="net-flow" class="v">0</div></div>
         <div class="metric"><div class="k">People in view</div><div id="people-visible" class="v">0</div></div>
-        <div class="metric"><div class="k">Last infer (ms)</div><div id="lab-last-infer-ms" class="v">0</div></div>
-        <div class="metric"><div class="k">Avg infer (ms)</div><div id="lab-avg-infer-ms" class="v">0</div></div>
       </div>
     </section>
   </div>
@@ -1323,32 +1612,14 @@ PAGE_TEMPLATE = """
       const formMessage = document.getElementById("form-message");
       const cameraPreset = document.getElementById("camera_preset");
       const cameraPresetMap = {camera_preset_json};
-      const detectionModeInput = document.getElementById("detection_mode");
       const modelNameInput = document.getElementById("model_name");
       const frameStrideInput = document.getElementById("frame_stride");
       const showBoxesCheckbox = document.getElementById("show_boxes");
-      const doorwayConfig = document.getElementById("doorway-config");
-      const weaponModelConfig = document.getElementById("weapon-model-config");
-      const weaponMetrics = document.getElementById("weapon-metrics");
-      const labMetrics = document.getElementById("lab-metrics");
       const uploadModelName = document.getElementById("upload_model_name");
       const uploadFrameStride = document.getElementById("upload_frame_stride");
       const uploadShowBoxes = document.getElementById("upload_show_boxes");
-      const uploadDetectionMode = document.getElementById("upload_detection_mode");
-      const uploadDoorLineInputs = [
-        document.getElementById("upload_door_line_x1"),
-        document.getElementById("upload_door_line_y1"),
-        document.getElementById("upload_door_line_x2"),
-        document.getElementById("upload_door_line_y2")
-      ];
-      const doorLineInputs = [
-        document.getElementById("door-line-x1"),
-        document.getElementById("door-line-y1"),
-        document.getElementById("door-line-x2"),
-        document.getElementById("door-line-y2")
-      ];
-      const labSideInput = document.getElementById("lab-side");
-      const uploadLabSide = document.getElementById("upload_lab_side");
+      const insideSide = document.getElementById("inside-side");
+      const uploadInsideSide = document.getElementById("upload_inside_side");
       const alarmCard = document.getElementById("alarm-card");
       const statusLabel = document.getElementById("status-label");
       const statusDetail = document.getElementById("status-detail");
@@ -1359,6 +1630,7 @@ PAGE_TEMPLATE = """
       const shortDescription = document.getElementById("short-description");
       const liveFrame = document.getElementById("live-frame");
       const liveFrameShell = document.getElementById("live-frame-shell");
+      const statusBannerBtn = document.getElementById("status-banner-btn");
       const fullscreenBtn = document.getElementById("fullscreen-btn");
       const currentScore = document.getElementById("current-score");
       const rawScore = document.getElementById("raw-score");
@@ -1374,15 +1646,6 @@ PAGE_TEMPLATE = """
       const cooldownBar = document.getElementById("cooldown-bar");
       const maxCooldown = {alert_cooldown_frames};
       const confirmationHistory = {confirmation_history};
-
-      function updateModeControls() {{
-        const isLabFlow = detectionModeInput.value === "lab_flow";
-        doorwayConfig.style.display = isLabFlow ? "grid" : "none";
-        weaponModelConfig.style.display = isLabFlow ? "none" : "block";
-        weaponMetrics.style.display = isLabFlow ? "none" : "grid";
-        labMetrics.style.display = isLabFlow ? "grid" : "none";
-      }}
-
       function getFullscreenElement() {{
         return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || null;
       }}
@@ -1439,10 +1702,8 @@ PAGE_TEMPLATE = """
           const response = await fetch(`/api/stream_state?id=${{encodeURIComponent(streamId)}}`, {{ cache: "no-store" }});
           if (!response.ok) throw new Error("Could not fetch stream state.");
           const data = await response.json();
-          if (data.mode && detectionModeInput.value !== data.mode) {{
-            detectionModeInput.value = data.mode;
-            updateModeControls();
-          }}
+          statusBannerBtn.textContent = data.show_status_banner === false ? "Show Status Banner" : "Hide Status Banner";
+          statusBannerBtn.setAttribute("aria-pressed", String(data.show_status_banner !== false));
 
           statusLabel.textContent = data.status_label || data.status || "Waiting for stream";
           statusDetail.textContent = data.error || data.status_note || "Monitoring stream.";
@@ -1464,8 +1725,6 @@ PAGE_TEMPLATE = """
           document.getElementById("exit-count").textContent = String(data.exit_count || 0);
           document.getElementById("net-flow").textContent = String(data.net_flow || 0);
           document.getElementById("people-visible").textContent = String(data.people_visible || 0);
-          document.getElementById("lab-last-infer-ms").textContent = Number(data.last_infer_ms || 0).toFixed(1);
-          document.getElementById("lab-avg-infer-ms").textContent = Number(data.avg_infer_ms || 0).toFixed(1);
 
           // Cooldown metrics
           const cdLeft = data.cooldown_remaining || 0;
@@ -1497,9 +1756,11 @@ PAGE_TEMPLATE = """
           liveFrame.src = `/api/live_frame?id=${{encodeURIComponent(streamId)}}&t=${{Date.now()}}`;
 
           if (data.status === "error" || data.status === "stopped" || data.status === "completed") {{
+            statusBannerBtn.style.display = "none";
             setFullscreenVisibility(false);
             window.clearTimeout(pollTimer); pollTimer = null; return;
           }}
+          statusBannerBtn.style.display = "inline-block";
           setFullscreenVisibility(true);
         }} catch (error) {{
           formMessage.textContent = error.message;
@@ -1523,14 +1784,24 @@ PAGE_TEMPLATE = """
         formMessage.textContent = "Stream started.";
         pollState();
       }});
-      detectionModeInput.addEventListener("change", updateModeControls);
-      updateModeControls();
-
       stopBtn.addEventListener("click", async () => {{
         if (!streamId) return;
         await fetch(`/stop_stream?id=${{encodeURIComponent(streamId)}}`, {{ method: "POST" }});
         setFullscreenVisibility(false);
         formMessage.textContent = "Stop request sent.";
+      }});
+
+      statusBannerBtn.addEventListener("click", async () => {{
+        if (!streamId) return;
+        try {{
+          const response = await fetch(`/toggle_status_banner?id=${{encodeURIComponent(streamId)}}`, {{ method: "POST" }});
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Could not toggle status banner.");
+          statusBannerBtn.textContent = data.show_status_banner ? "Hide Status Banner" : "Show Status Banner";
+          statusBannerBtn.setAttribute("aria-pressed", String(data.show_status_banner));
+        }} catch (error) {{
+          formMessage.textContent = error.message;
+        }}
       }});
 
       fullscreenBtn.addEventListener("click", async () => {{
@@ -1548,18 +1819,12 @@ PAGE_TEMPLATE = """
         uploadModelName.value = modelNameInput.value;
         uploadFrameStride.value = frameStrideInput.value;
         uploadShowBoxes.value = showBoxesCheckbox.checked ? "1" : "0";
-        uploadDetectionMode.value = detectionModeInput.value;
-        doorLineInputs.forEach((input, index) => {{
-          uploadDoorLineInputs[index].value = input.value;
-        }});
-        uploadLabSide.value = labSideInput.value;
+        uploadInsideSide.value = insideSide.value;
       }}
       modelNameInput.addEventListener("change", syncUploadFields);
       frameStrideInput.addEventListener("change", syncUploadFields);
       showBoxesCheckbox.addEventListener("change", syncUploadFields);
-      detectionModeInput.addEventListener("change", syncUploadFields);
-      doorLineInputs.forEach((input) => input.addEventListener("change", syncUploadFields));
-      labSideInput.addEventListener("change", syncUploadFields);
+      insideSide.addEventListener("change", syncUploadFields);
       uploadForm.addEventListener("submit", syncUploadFields);
       syncUploadFields();
 
@@ -1578,26 +1843,11 @@ PAGE_TEMPLATE = """
 """
 
 
-def _parse_doorway_config(value_getter):
-    percentages = []
-    defaults = [value * 100.0 for value in DEFAULT_DOORWAY_LINE]
-    for field_name, default in zip(
-        ("door_line_x1", "door_line_y1", "door_line_x2", "door_line_y2"),
-        defaults,
-    ):
-        try:
-            value = float(value_getter(field_name, str(default)))
-        except (TypeError, ValueError):
-            raise ValueError(f"{field_name} must be a number between 0 and 100.")
-        if not math.isfinite(value) or value < 0.0 or value > 100.0:
-            raise ValueError(f"{field_name} must be between 0 and 100.")
-        percentages.append(value)
-    if math.hypot(percentages[2] - percentages[0], percentages[3] - percentages[1]) < 2.0:
-        raise ValueError("The doorway line endpoints must be at least 2% apart.")
-    lab_side = str(value_getter("lab_side", "left") or "left").strip().lower()
-    if lab_side not in {"left", "right"}:
-        raise ValueError("lab_side must be 'left' or 'right'.")
-    return tuple(value / 100.0 for value in percentages), lab_side
+def _parse_virtual_line_config(value_getter):
+    inside_side = str(value_getter("inside_side", "below") or "below").strip().lower()
+    if inside_side not in {"above", "below"}:
+        raise ValueError("inside_side must be 'above' or 'below'.")
+    return DEFAULT_VIRTUAL_LINE, inside_side
 
 
 class AppHandler(BaseHTTPRequestHandler):
@@ -1635,9 +1885,12 @@ class AppHandler(BaseHTTPRequestHandler):
             if parsed.path == "/stop_stream":
                 self._handle_stop_stream(parsed.query)
                 return
+            if parsed.path == "/toggle_status_banner":
+                self._handle_toggle_status_banner(parsed.query)
+                return
             self.send_error(404, "Not found")
         except Exception as exc:
-            if parsed.path in {"/start_stream", "/stop_stream"}:
+            if parsed.path in {"/start_stream", "/stop_stream", "/toggle_status_banner"}:
                 self._send_json({"error": f"{type(exc).__name__}: {exc}"}, status=500)
             else:
                 self._render_page(f"Upload failed: {type(exc).__name__}: {exc}")
@@ -1662,19 +1915,13 @@ class AppHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length).decode("utf-8")
         form = urllib.parse.parse_qs(raw)
         camera_url = urllib.parse.unquote(form.get("camera_url", [DEFAULT_CAMERA_URL])[0].strip())
-        detection_mode = form.get("detection_mode", ["weapon"])[0].strip().lower()
-        if detection_mode not in {"weapon", "lab_flow"}:
-            self._send_json({"error": "Unsupported monitoring feature."}, status=400)
+        try:
+            virtual_line, inside_side = _parse_virtual_line_config(
+                lambda name, default: form.get(name, [default])[0]
+            )
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
             return
-        doorway_line, lab_side = DEFAULT_DOORWAY_LINE, "left"
-        if detection_mode == "lab_flow":
-            try:
-                doorway_line, lab_side = _parse_doorway_config(
-                    lambda name, default: form.get(name, [default])[0]
-                )
-            except ValueError as exc:
-                self._send_json({"error": str(exc)}, status=400)
-                return
         # Always use the CLI-validated DEFAULT_MODEL_NAME — ignore any model value
         # submitted by the form to prevent stray .pt files from being used
         model_name = DEFAULT_MODEL_NAME
@@ -1701,9 +1948,8 @@ class AppHandler(BaseHTTPRequestHandler):
             status_label="Connecting to camera",
             status_note="SDP safety monitoring is starting.",
             show_boxes=show_boxes,
-            detection_mode=detection_mode,
-            doorway_line=doorway_line,
-            lab_side=lab_side,
+            virtual_line=virtual_line,
+            inside_side=inside_side,
         )
         self._send_json({"stream_id": stream_id, "status": "starting"})
 
@@ -1718,19 +1964,13 @@ class AppHandler(BaseHTTPRequestHandler):
             self._render_page("No video file was uploaded.")
             return
         threshold = float(DEFAULT_THRESHOLD)
-        detection_mode = str(form.getvalue("detection_mode", "weapon") or "weapon").strip().lower()
-        if detection_mode not in {"weapon", "lab_flow"}:
-            self._render_page("Unsupported monitoring feature.")
+        try:
+            virtual_line, inside_side = _parse_virtual_line_config(
+                lambda name, default: form.getvalue(name, default)
+            )
+        except ValueError as exc:
+            self._render_page(f"Invalid virtual line configuration: {exc}")
             return
-        doorway_line, lab_side = DEFAULT_DOORWAY_LINE, "left"
-        if detection_mode == "lab_flow":
-            try:
-                doorway_line, lab_side = _parse_doorway_config(
-                    lambda name, default: form.getvalue(name, default)
-                )
-            except ValueError as exc:
-                self._render_page(f"Invalid doorway configuration: {exc}")
-                return
         stride_value = form.getvalue("frame_stride", str(APP_DEFAULT_FRAME_STRIDE))
         show_boxes = bool(int(form.getvalue("show_boxes", "0") or "0"))
         try:
@@ -1751,9 +1991,8 @@ class AppHandler(BaseHTTPRequestHandler):
             is_uploaded_source=True,
             realtime_playback=True,
             show_boxes=show_boxes,
-            detection_mode=detection_mode,
-            doorway_line=doorway_line,
-            lab_side=lab_side,
+            virtual_line=virtual_line,
+            inside_side=inside_side,
         )
         location = f"/?stream_id={urllib.parse.quote(stream_id)}&uploaded=1"
         self.send_response(303)
@@ -1771,9 +2010,8 @@ class AppHandler(BaseHTTPRequestHandler):
         is_uploaded_source=False,
         realtime_playback=False,
         show_boxes=False,
-        detection_mode="weapon",
-        doorway_line=DEFAULT_DOORWAY_LINE,
-        lab_side="left",
+        virtual_line=DEFAULT_VIRTUAL_LINE,
+        inside_side="below",
     ):
         stream_id = uuid.uuid4().hex
         state = {
@@ -1783,9 +2021,8 @@ class AppHandler(BaseHTTPRequestHandler):
             "status_note": status_note,
             "camera_url": camera_url,
             "model_name": model_name,
-            "mode": detection_mode,
-            "doorway_line": list(doorway_line),
-            "lab_side": lab_side,
+            "virtual_line": list(virtual_line),
+            "inside_side": inside_side,
             "threshold": threshold,
             "frame_stride": frame_stride,
             "show_boxes": bool(show_boxes),
@@ -1819,27 +2056,24 @@ class AppHandler(BaseHTTPRequestHandler):
             "is_uploaded_source": bool(is_uploaded_source),
             "realtime_playback": bool(realtime_playback),
             "show_boxes": bool(show_boxes),
+            "show_status_banner": True,
         }
-        if detection_mode == "lab_flow":
-            worker = threading.Thread(
-                target=lab_flow_worker,
-                args=(
-                    stream_id,
-                    camera_url,
-                    frame_stride,
-                    bool(is_uploaded_source),
-                    bool(realtime_playback),
-                    doorway_line,
-                    lab_side,
-                ),
-                daemon=True,
-            )
-        else:
-            worker = threading.Thread(
-                target=stream_worker,
-                args=(stream_id, camera_url, threshold, frame_stride, model_name, bool(is_uploaded_source), bool(realtime_playback), bool(show_boxes)),
-                daemon=True,
-            )
+        worker = threading.Thread(
+            target=stream_worker,
+            args=(
+                stream_id,
+                camera_url,
+                threshold,
+                frame_stride,
+                model_name,
+                bool(is_uploaded_source),
+                bool(realtime_playback),
+                bool(show_boxes),
+                virtual_line,
+                inside_side,
+            ),
+            daemon=True,
+        )
         state["thread"] = worker
         with STREAMS_LOCK:
             STREAMS[stream_id] = state
@@ -1858,6 +2092,17 @@ class AppHandler(BaseHTTPRequestHandler):
             payload["status_label"] = "Stream stopped"
             payload["status_note"] = "Stream was stopped by user request."
         self._send_json({"ok": True})
+
+    def _handle_toggle_status_banner(self, query):
+        stream_id = urllib.parse.parse_qs(query).get("id", [""])[0]
+        with STREAMS_LOCK:
+            payload = STREAMS.get(stream_id)
+            if payload is None:
+                self._send_json({"error": "Stream not found."}, status=404)
+                return
+            payload["show_status_banner"] = not bool(payload.get("show_status_banner", True))
+            show_status_banner = payload["show_status_banner"]
+        self._send_json({"ok": True, "show_status_banner": show_status_banner})
 
     def _render_page(self, message="SDP safety monitoring is ready."):
         camera_options = []
@@ -1880,10 +2125,6 @@ class AppHandler(BaseHTTPRequestHandler):
             confirmation_history=int(CONFIRMATION_HISTORY),
             ema_alpha=float(SCORE_EMA_ALPHA),
             person_model_name=html.escape(PERSON_MODEL_NAME),
-            door_line_x1=round(DEFAULT_DOORWAY_LINE[0] * 100),
-            door_line_y1=round(DEFAULT_DOORWAY_LINE[1] * 100),
-            door_line_x2=round(DEFAULT_DOORWAY_LINE[2] * 100),
-            door_line_y2=round(DEFAULT_DOORWAY_LINE[3] * 100),
         )
         self._send_html(page)
 
