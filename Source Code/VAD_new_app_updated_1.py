@@ -954,7 +954,6 @@ def stream_worker(
     realtime_playback=False,
     show_boxes=False,
     virtual_line=DEFAULT_VIRTUAL_LINE,
-    inside_side="below",
 ):
     analyzer = get_analyzer(model_name=model_name)
     cap = cv2.VideoCapture(camera_url)
@@ -1047,8 +1046,6 @@ def stream_worker(
                 state = STREAMS.get(stream_id)
                 if state is None or state.get("stop_requested"):
                     break
-                updated_inside_side = state.get("inside_side", inside_side)
-            inside_side = updated_inside_side
             ok, frame = cap.read()
             if not ok:
                 if is_uploaded_source:
@@ -1067,7 +1064,7 @@ def stream_worker(
                     line_ratio[3] * height,
                 )
                 new_entries, new_exits, _ = update_person_flow(
-                    person_tracks, person_detections, frame_index, line, inside_side
+                    person_tracks, person_detections, frame_index, line, "below"
                 )
                 entry_count += new_entries
                 exit_count += new_exits
@@ -1225,12 +1222,25 @@ def stream_worker(
                 int(line_ratio[2] * width),
                 int(line_ratio[3] * height),
             )
-            cv2.line(display_frame, line[:2], line[2:], (0, 220, 255), 3, cv2.LINE_AA)
-            cv2.circle(display_frame, line[:2], 7, (0, 220, 255), -1, cv2.LINE_AA)
-            cv2.circle(display_frame, line[2:], 7, (0, 220, 255), -1, cv2.LINE_AA)
-            for detection in person_detections:
-                x1, y1, x2, y2 = [int(value) for value in detection["bbox"]]
-                cv2.rectangle(display_frame, (x1, y1), (x2, y2), (60, 235, 130), 2)
+            if show_boxes:
+                cv2.line(display_frame, line[:2], line[2:], (0, 220, 255), 3, cv2.LINE_AA)
+                cv2.circle(display_frame, line[:2], 7, (0, 220, 255), -1, cv2.LINE_AA)
+                cv2.circle(display_frame, line[2:], 7, (0, 220, 255), -1, cv2.LINE_AA)
+                for detection in person_detections:
+                    x1, y1, x2, y2 = [int(value) for value in detection["bbox"]]
+                    cv2.rectangle(display_frame, (x1, y1), (x2, y2), (60, 235, 130), 2)
+                    track_id = detection["track_id"]
+                    label = f"Person {track_id}" if track_id is not None else "Person"
+                    cv2.putText(
+                        display_frame,
+                        label,
+                        (x1, max(20, y1 - 8)),
+                        cv2.FONT_HERSHEY_DUPLEX,
+                        0.62,
+                        (60, 235, 130),
+                        2,
+                        cv2.LINE_AA,
+                    )
             cv2.putText(
                 display_frame,
                 f"Entered: {entry_count}  Exited: {exit_count}",
@@ -1517,10 +1527,6 @@ PAGE_TEMPLATE = """
     .k {{ color:var(--muted); font-size:0.72rem; text-transform:uppercase; }}
     .v {{ font-size:1.2rem; font-weight:800; margin-top:4px; }}
     .help {{ color:var(--muted); white-space:pre-wrap; word-break:break-word; }}
-    .virtual-line-config {{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; margin:12px 0; }}
-    .virtual-line-config p {{ grid-column:1 / -1; margin:0; }}
-    .virtual-line-config label {{ margin:0; }}
-    .virtual-line-config input, .virtual-line-config select {{ margin-top:6px; }}
     .two-up {{ display:grid; grid-template-columns: 1fr 1fr; gap:18px; }}
     .subhead {{ margin: 0 0 10px 0; color:var(--muted); font-size:0.9rem; text-transform:uppercase; letter-spacing:0.06em; }}
     .cooldown-bar-wrap {{ margin-top:10px; background: rgba(255,255,255,0.07); border-radius:8px; height:8px; overflow:hidden; }}
@@ -1537,13 +1543,7 @@ PAGE_TEMPLATE = """
           <div><label for="camera_preset">Camera</label><select id="camera_preset">{camera_preset_options}</select></div>
           <div><label for="model_name">Weapon model</label><select id="model_name" name="model_name">{model_options}</select></div>
           <div><label for="frame_stride">Sampling Stride</label><input id="frame_stride" name="frame_stride" type="number" min="1" max="16" step="1" value="{default_frame_stride}"></div>
-          <div><label><input id="show_boxes" name="show_boxes" type="checkbox" value="1"> Show boxes and classes</label></div>
-          <div id="virtual-line-config" class="virtual-line-config">
-            <p class="help">The entry/exit counting line is fixed across the sliding-door threshold.</p>
-            <label>Lab is
-              <select id="inside-side" name="inside_side"><option value="above">Above the line</option><option value="below" selected>Below the line</option></select>
-            </label>
-          </div>
+          <div><label><input id="show_boxes" name="show_boxes" type="checkbox" value="1"> Show boxes, classes, and entry/exit line</label></div>
           <button type="submit">Start Monitor</button><button id="stop-btn" type="button" class="stop">Stop Stream</button>
         </form>
         <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data">
@@ -1551,7 +1551,6 @@ PAGE_TEMPLATE = """
           <input id="upload_model_name" name="model_name" type="hidden" value="{default_model_key}">
           <input id="upload_frame_stride" name="frame_stride" type="hidden" value="{default_frame_stride}">
           <input id="upload_show_boxes" name="show_boxes" type="hidden" value="0">
-          <input id="upload_inside_side" name="inside_side" type="hidden" value="below">
           <button type="submit">Analyze Uploaded Video</button>
         </form>
         <p id="form-message" class="help">{message}</p>
@@ -1618,8 +1617,6 @@ PAGE_TEMPLATE = """
       const uploadModelName = document.getElementById("upload_model_name");
       const uploadFrameStride = document.getElementById("upload_frame_stride");
       const uploadShowBoxes = document.getElementById("upload_show_boxes");
-      const insideSide = document.getElementById("inside-side");
-      const uploadInsideSide = document.getElementById("upload_inside_side");
       const alarmCard = document.getElementById("alarm-card");
       const statusLabel = document.getElementById("status-label");
       const statusDetail = document.getElementById("status-detail");
@@ -1819,12 +1816,10 @@ PAGE_TEMPLATE = """
         uploadModelName.value = modelNameInput.value;
         uploadFrameStride.value = frameStrideInput.value;
         uploadShowBoxes.value = showBoxesCheckbox.checked ? "1" : "0";
-        uploadInsideSide.value = insideSide.value;
       }}
       modelNameInput.addEventListener("change", syncUploadFields);
       frameStrideInput.addEventListener("change", syncUploadFields);
       showBoxesCheckbox.addEventListener("change", syncUploadFields);
-      insideSide.addEventListener("change", syncUploadFields);
       uploadForm.addEventListener("submit", syncUploadFields);
       syncUploadFields();
 
@@ -1841,13 +1836,6 @@ PAGE_TEMPLATE = """
 </body>
 </html>
 """
-
-
-def _parse_virtual_line_config(value_getter):
-    inside_side = str(value_getter("inside_side", "below") or "below").strip().lower()
-    if inside_side not in {"above", "below"}:
-        raise ValueError("inside_side must be 'above' or 'below'.")
-    return DEFAULT_VIRTUAL_LINE, inside_side
 
 
 class AppHandler(BaseHTTPRequestHandler):
@@ -1915,13 +1903,7 @@ class AppHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length).decode("utf-8")
         form = urllib.parse.parse_qs(raw)
         camera_url = urllib.parse.unquote(form.get("camera_url", [DEFAULT_CAMERA_URL])[0].strip())
-        try:
-            virtual_line, inside_side = _parse_virtual_line_config(
-                lambda name, default: form.get(name, [default])[0]
-            )
-        except ValueError as exc:
-            self._send_json({"error": str(exc)}, status=400)
-            return
+        virtual_line = DEFAULT_VIRTUAL_LINE
         # Always use the CLI-validated DEFAULT_MODEL_NAME — ignore any model value
         # submitted by the form to prevent stray .pt files from being used
         model_name = DEFAULT_MODEL_NAME
@@ -1949,7 +1931,6 @@ class AppHandler(BaseHTTPRequestHandler):
             status_note="SDP safety monitoring is starting.",
             show_boxes=show_boxes,
             virtual_line=virtual_line,
-            inside_side=inside_side,
         )
         self._send_json({"stream_id": stream_id, "status": "starting"})
 
@@ -1964,13 +1945,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self._render_page("No video file was uploaded.")
             return
         threshold = float(DEFAULT_THRESHOLD)
-        try:
-            virtual_line, inside_side = _parse_virtual_line_config(
-                lambda name, default: form.getvalue(name, default)
-            )
-        except ValueError as exc:
-            self._render_page(f"Invalid virtual line configuration: {exc}")
-            return
+        virtual_line = DEFAULT_VIRTUAL_LINE
         stride_value = form.getvalue("frame_stride", str(APP_DEFAULT_FRAME_STRIDE))
         show_boxes = bool(int(form.getvalue("show_boxes", "0") or "0"))
         try:
@@ -1992,7 +1967,6 @@ class AppHandler(BaseHTTPRequestHandler):
             realtime_playback=True,
             show_boxes=show_boxes,
             virtual_line=virtual_line,
-            inside_side=inside_side,
         )
         location = f"/?stream_id={urllib.parse.quote(stream_id)}&uploaded=1"
         self.send_response(303)
@@ -2011,7 +1985,6 @@ class AppHandler(BaseHTTPRequestHandler):
         realtime_playback=False,
         show_boxes=False,
         virtual_line=DEFAULT_VIRTUAL_LINE,
-        inside_side="below",
     ):
         stream_id = uuid.uuid4().hex
         state = {
@@ -2022,7 +1995,6 @@ class AppHandler(BaseHTTPRequestHandler):
             "camera_url": camera_url,
             "model_name": model_name,
             "virtual_line": list(virtual_line),
-            "inside_side": inside_side,
             "threshold": threshold,
             "frame_stride": frame_stride,
             "show_boxes": bool(show_boxes),
@@ -2070,7 +2042,6 @@ class AppHandler(BaseHTTPRequestHandler):
                 bool(realtime_playback),
                 bool(show_boxes),
                 virtual_line,
-                inside_side,
             ),
             daemon=True,
         )
