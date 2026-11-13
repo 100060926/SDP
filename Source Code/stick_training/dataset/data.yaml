@@ -1,0 +1,5 @@
+path: C:\Users\rakbo\OneDrive\Desktop\SDPGitHub\SDP\Source Code\stick_training\dataset
+train: images/train
+val: images/val
+names:
+  0: stick

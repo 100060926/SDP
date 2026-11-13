@@ -51,6 +51,11 @@ CAMERA_PRESETS = OrderedDict(
 DEFAULT_CAMERA_URL = CAMERA_PRESETS["Camera 3"]
 DEFAULT_THRESHOLD = 0.6 # lowered from 0.50
 PERSON_MODEL_NAME = "yolo11n.pt"
+# --- Stick detector (separate YOLO model trained on the stick dataset) ---
+STICK_MODEL_NAME = "stick_best.pt"   # looked up next to this script if not absolute
+STICK_CONF = 0.50                    # raise it for fewer false boxes
+STICK_IMGSZ = 640                    # must match the size used in train.py
+STICK_RAISES_ALERT = True            # False = draw/count the stick but do not raise DANGER
 DEFAULT_VIRTUAL_LINE = (0.22, 0.307, 0.366, 0.256)
 LINE_CROSSING_DEADBAND_PX = 12
 TRACK_CLEANUP_FRAMES = 90
@@ -377,6 +382,22 @@ class YOLOWeaponAnalyzer:
         self.class_filter_ids = None
         self.label_lookup = {}
         self.supported_weapon_types = set()
+        self.stick_model = None
+
+    def _ensure_stick_model(self):
+        """Load the optional stick model once. Missing file = stick detection is simply off."""
+        if self.stick_model is not None or YOLO is None:
+            return
+        path = _resolve_input_path(STICK_MODEL_NAME)
+        if not (path.exists() and path.is_file()):
+            print(f"[stick] model not found ({STICK_MODEL_NAME}); stick detection is OFF", flush=True)
+            return
+        try:
+            self.stick_model = YOLO(str(path))
+            print(f"[stick] loaded {path} conf={STICK_CONF} imgsz={STICK_IMGSZ} "
+                  f"alert={STICK_RAISES_ALERT}", flush=True)
+        except Exception as exc:
+            print(f"[stick] failed to load {path}: {type(exc).__name__}: {exc}", flush=True)
 
     def _ensure_model(self):
         if YOLO is None:
@@ -388,6 +409,7 @@ class YOLOWeaponAnalyzer:
             if self.model is not None:
                 return
             self.model = YOLO(self.model_name)
+            self._ensure_stick_model()
             names = getattr(self.model, "names", {})
             if isinstance(names, dict):
                 self.label_lookup = {int(k): str(v) for k, v in names.items()}
@@ -432,6 +454,8 @@ class YOLOWeaponAnalyzer:
                 color = (48, 60, 255)
             elif det["weapon_type"] == "knife":
                 color = (0, 160, 255)
+            elif det["weapon_type"] == "stick":
+                color = (255, 180, 0)
             else:
                 color = (95, 230, 120)
             cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
@@ -503,8 +527,30 @@ class YOLOWeaponAnalyzer:
                     frame_dets.append(det_item)
                     if weapon_type is not None:
                         weapon_detections.append(det_item)
+            if self.stick_model is not None:
+                stick_res = self.stick_model.predict(
+                    source=frame,
+                    conf=STICK_CONF,
+                    iou=self.iou_threshold,
+                    imgsz=STICK_IMGSZ,
+                    device=self.device_arg,
+                    verbose=False,
+                )[0]
+                for box in (getattr(stick_res, "boxes", None) or []):
+                    xyxy = box.xyxy[0].tolist()
+                    stick_det = {
+                        "frame_index": frame_idx,
+                        "class_id": -1,
+                        "class_name": "stick",
+                        "weapon_type": "stick",
+                        "confidence": float(box.conf[0]),
+                        "bbox": [float(v) for v in xyxy],
+                    }
+                    frame_dets.append(stick_det)
+                    if STICK_RAISES_ALERT:
+                        weapon_detections.append(stick_det)
             all_detections.extend(frame_dets)
-            weapon_frame_dets = [d for d in frame_dets if d["weapon_type"] in ("gun", "knife")]
+            weapon_frame_dets = [d for d in frame_dets if d["weapon_type"] in ("gun", "knife", "stick")]
             if show_boxes:
                 annotated_frames.append(self._draw_detections(frame, weapon_frame_dets))
             else:
@@ -513,14 +559,7 @@ class YOLOWeaponAnalyzer:
         weapon_detections = _dedupe_overlapping_weapon_detections(weapon_detections, iou_threshold=0.60)
 
         types = {det["weapon_type"] for det in weapon_detections}
-        if "gun" in types and "knife" in types:
-            anomaly_type = "gun,knife"
-        elif "gun" in types:
-            anomaly_type = "gun"
-        elif "knife" in types:
-            anomaly_type = "knife"
-        else:
-            anomaly_type = "normal"
+        anomaly_type = ",".join(t for t in ("gun", "knife", "stick") if t in types) or "normal"
         pred = 1 if anomaly_type != "normal" else 0
         score = max((float(det["confidence"]) for det in weapon_detections), default=0.0)
 
@@ -533,13 +572,14 @@ class YOLOWeaponAnalyzer:
         if pred == 1:
             gun_count = sum(1 for det in weapon_detections if det["weapon_type"] == "gun")
             knife_count = sum(1 for det in weapon_detections if det["weapon_type"] == "knife")
+            stick_count = sum(1 for det in weapon_detections if det["weapon_type"] == "stick")
             short_description = (
                 f"Detected objects={len(all_detections)}; weapon hits: gun={gun_count}, "
-                f"knife={knife_count}, max_weapon_conf={score:.2f}."
+                f"knife={knife_count}, stick={stick_count}, max_weapon_conf={score:.2f}."
             )
             reason_code = "visible_weapon"
         else:
-            short_description = f"Detected objects={len(all_detections)}; no gun/knife detected."
+            short_description = f"Detected objects={len(all_detections)}; no gun/knife/stick alert."
             reason_code = "no_visible_weapon"
 
         raw_payload = {
@@ -2126,6 +2166,12 @@ def parse_cli_args():
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--person-model-name", default=PERSON_MODEL_NAME,
                         help="YOLO model with a person class for lab entry/exit monitoring")
+    parser.add_argument("--stick-model", default=STICK_MODEL_NAME,
+                        help="stick detector weights (stick_best.pt); use '' to disable")
+    parser.add_argument("--stick-conf", default=STICK_CONF, type=float)
+    parser.add_argument("--stick-imgsz", default=STICK_IMGSZ, type=int)
+    parser.add_argument("--no-stick-alert", action="store_true",
+                        help="draw sticks but do not raise a DANGER alert for them")
     parser.add_argument("--cache-dir", default=str(Path("cache")))
     parser.add_argument("--instruct-path", default="")
     parser.add_argument("--segment-len", default=SEGMENT_LEN, type=int)
@@ -2167,11 +2213,20 @@ def main(
     confirm_history=CONFIRMATION_HISTORY,
     ema_alpha=SCORE_EMA_ALPHA,
     person_model_name=PERSON_MODEL_NAME,
+    stick_model_name=STICK_MODEL_NAME,
+    stick_conf=STICK_CONF,
+    stick_imgsz=STICK_IMGSZ,
+    stick_alert=STICK_RAISES_ALERT,
 ):
     global SEGMENT_LEN, SELECTED_FRAMES_PER_SEGMENT, INFERENCE_EVERY_SAMPLED_FRAMES
     global APP_DEFAULT_FRAME_STRIDE, APP_CONFIDENCE_THRESHOLD, APP_IOU_THRESHOLD, APP_IMAGE_SIZE, APP_INSTRUCT_PATH
     global DEFAULT_MODEL_NAME, MODEL_CHOICES
     global PERSON_MODEL_NAME
+    global STICK_MODEL_NAME, STICK_CONF, STICK_IMGSZ, STICK_RAISES_ALERT
+    STICK_MODEL_NAME = str(stick_model_name or "").strip()
+    STICK_CONF = max(0.05, min(0.99, float(stick_conf)))
+    STICK_IMGSZ = max(160, int(stick_imgsz))
+    STICK_RAISES_ALERT = bool(stick_alert)
     global DEFAULT_THRESHOLD, ALERT_COOLDOWN_FRAMES, CONFIRMATION_WINDOW, CONFIRMATION_HISTORY, SCORE_EMA_ALPHA
 
     _ = cache_dir
@@ -2223,6 +2278,7 @@ def main(
     print(f"SDP safety monitor running at http://{host}:{port}")
     print(f"Model: {model_name}")
     print(f"Person flow model: {PERSON_MODEL_NAME}")
+    print(f"Stick model: {STICK_MODEL_NAME or 'disabled'} (conf={STICK_CONF}, alert={STICK_RAISES_ALERT})")
     print(f"conf_thres={APP_CONFIDENCE_THRESHOLD:.2f}, iou_thres={APP_IOU_THRESHOLD:.2f}, imgsz={APP_IMAGE_SIZE}")
     print(f"alert_thres={DEFAULT_THRESHOLD:.2f}")
     print(f"Temporal smoothing: cooldown={ALERT_COOLDOWN_FRAMES} frames, "
@@ -2252,6 +2308,10 @@ if __name__ == "__main__":
         port=cli_args.port,
         model_name=cli_args.model_name,
         person_model_name=cli_args.person_model_name,
+        stick_model_name=cli_args.stick_model,
+        stick_conf=cli_args.stick_conf,
+        stick_imgsz=cli_args.stick_imgsz,
+        stick_alert=not cli_args.no_stick_alert,
         cache_dir=cli_args.cache_dir,
         instruct_path=cli_args.instruct_path,
         segment_len=cli_args.segment_len,

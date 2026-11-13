@@ -1,0 +1,574 @@
+<?xml version="1.0" encoding="utf-8"?>
+<annotations>
+  <version>1.1</version>
+  <meta>
+    <task>
+      <id>2762065</id>
+      <name>stick-video7</name>
+      <size>94</size>
+      <mode>interpolation</mode>
+      <overlap>0</overlap>
+      <bugtracker></bugtracker>
+      <created>2026-11-13 12:11:22.649121+00:00</created>
+      <updated>2026-11-13 17:24:35.595542+00:00</updated>
+      <subset>default</subset>
+      <start_frame>0</start_frame>
+      <stop_frame>279</stop_frame>
+      <frame_filter>step=3</frame_filter>
+      <segments>
+        <segment>
+          <id>4723785</id>
+          <start>0</start>
+          <stop>93</stop>
+          <url>https://app.cvat.ai/api/tasks/2762065/dataset/export/api/jobs/4727106</url>
+        </segment>
+      </segments>
+      <owner>
+        <username>suoodalnuaimi</username>
+        <email>suoodalnuaimi28@gmail.com</email>
+      </owner>
+      <assignee></assignee>
+      <labels>
+        <label>
+          <name>stick</name>
+          <color>#7455d3</color>
+          <type>any</type>
+          <attributes>
+          </attributes>
+        </label>
+      </labels>
+      <original_size>
+        <width>2560</width>
+        <height>1920</height>
+      </original_size>
+      <source>video7 (1).mp4</source>
+    </task>
+    <dumped>2026-11-13 17:25:52.356271+00:00</dumped>
+  </meta>
+  <track id="0" label="stick" source="manual">
+    <box frame="12" keyframe="1" outside="0" occluded="0" xtl="904.65" ytl="295.01" xbr="928.99" ybr="446.36" z_order="0">
+    </box>
+    <box frame="15" keyframe="1" outside="1" occluded="0" xtl="904.65" ytl="295.01" xbr="928.99" ybr="446.36" z_order="0">
+    </box>
+  </track>
+  <track id="1" label="stick" source="manual">
+    <box frame="15" keyframe="1" outside="0" occluded="0" xtl="891.72" ytl="268.39" xbr="909.98" ybr="449.40" z_order="0">
+    </box>
+    <box frame="18" keyframe="1" outside="1" occluded="0" xtl="891.72" ytl="268.39" xbr="909.98" ybr="449.40" z_order="0">
+    </box>
+  </track>
+  <track id="2" label="stick" source="manual">
+    <box frame="18" keyframe="1" outside="0" occluded="0" xtl="879.56" ytl="273.71" xbr="903.13" ybr="447.88" z_order="0">
+    </box>
+    <box frame="21" keyframe="1" outside="1" occluded="0" xtl="879.56" ytl="273.71" xbr="903.13" ybr="447.88" z_order="0">
+    </box>
+  </track>
+  <track id="3" label="stick" source="manual">
+    <box frame="21" keyframe="1" outside="0" occluded="0" xtl="865.11" ytl="263.83" xbr="893.21" ybr="409.85" rotation="353.70" z_order="0">
+    </box>
+    <box frame="24" keyframe="1" outside="1" occluded="0" xtl="865.11" ytl="263.83" xbr="893.21" ybr="409.85" rotation="353.70" z_order="0">
+    </box>
+  </track>
+  <track id="4" label="stick" source="manual">
+    <box frame="30" keyframe="1" outside="0" occluded="0" xtl="815.33" ytl="299.85" xbr="842.60" ybr="465.28" rotation="347.20" z_order="0">
+    </box>
+    <box frame="33" keyframe="1" outside="1" occluded="0" xtl="815.33" ytl="299.85" xbr="842.60" ybr="465.28" rotation="347.20" z_order="0">
+    </box>
+  </track>
+  <track id="5" label="stick" source="manual">
+    <box frame="33" keyframe="1" outside="0" occluded="0" xtl="772.40" ytl="225.91" xbr="796.16" ybr="399.18" rotation="347.00" z_order="0">
+    </box>
+    <box frame="36" keyframe="1" outside="1" occluded="0" xtl="772.40" ytl="225.91" xbr="796.16" ybr="399.18" rotation="347.00" z_order="0">
+    </box>
+  </track>
+  <track id="6" label="stick" source="manual">
+    <box frame="36" keyframe="1" outside="0" occluded="0" xtl="763.42" ytl="211.85" xbr="785.41" ybr="391.37" rotation="351.40" z_order="0">
+    </box>
+    <box frame="39" keyframe="1" outside="1" occluded="0" xtl="763.42" ytl="211.85" xbr="785.41" ybr="391.37" rotation="351.40" z_order="0">
+    </box>
+  </track>
+  <track id="7" label="stick" source="manual">
+    <box frame="39" keyframe="1" outside="0" occluded="0" xtl="751.69" ytl="197.89" xbr="774.57" ybr="390.81" rotation="348.90" z_order="0">
+    </box>
+    <box frame="42" keyframe="1" outside="1" occluded="0" xtl="751.69" ytl="197.89" xbr="774.57" ybr="390.81" rotation="348.90" z_order="0">
+    </box>
+  </track>
+  <track id="8" label="stick" source="manual">
+    <box frame="42" keyframe="1" outside="0" occluded="0" xtl="738.78" ytl="196.90" xbr="761.66" ybr="376.41" rotation="358.20" z_order="0">
+    </box>
+    <box frame="45" keyframe="1" outside="1" occluded="0" xtl="738.78" ytl="196.90" xbr="761.66" ybr="376.41" rotation="358.20" z_order="0">
+    </box>
+  </track>
+  <track id="9" label="stick" source="manual">
+    <box frame="45" keyframe="1" outside="0" occluded="0" xtl="729.98" ytl="197.78" xbr="748.46" ybr="384.30" z_order="0">
+    </box>
+    <box frame="48" keyframe="1" outside="1" occluded="0" xtl="729.98" ytl="197.78" xbr="748.46" ybr="384.30" z_order="0">
+    </box>
+  </track>
+  <track id="10" label="stick" source="manual">
+    <box frame="48" keyframe="1" outside="0" occluded="0" xtl="727.34" ytl="196.90" xbr="746.70" ybr="381.69" rotation="349.50" z_order="0">
+    </box>
+    <box frame="51" keyframe="1" outside="1" occluded="0" xtl="727.34" ytl="196.90" xbr="746.70" ybr="381.69" rotation="349.50" z_order="0">
+    </box>
+  </track>
+  <track id="11" label="stick" source="manual">
+    <box frame="51" keyframe="1" outside="0" occluded="0" xtl="726.44" ytl="196.11" xbr="750.20" ybr="394.53" rotation="338.50" z_order="0">
+    </box>
+    <box frame="54" keyframe="1" outside="1" occluded="0" xtl="726.44" ytl="196.11" xbr="750.20" ybr="394.53" rotation="338.50" z_order="0">
+    </box>
+  </track>
+  <track id="12" label="stick" source="manual">
+    <box frame="54" keyframe="1" outside="0" occluded="0" xtl="727.35" ytl="201.17" xbr="744.95" ybr="393.53" rotation="334.70" z_order="0">
+    </box>
+    <box frame="57" keyframe="1" outside="1" occluded="0" xtl="727.35" ytl="201.17" xbr="744.95" ybr="393.53" rotation="334.70" z_order="0">
+    </box>
+  </track>
+  <track id="13" label="stick" source="manual">
+    <box frame="57" keyframe="1" outside="0" occluded="0" xtl="732.68" ytl="201.29" xbr="749.40" ybr="389.27" rotation="325.90" z_order="0">
+    </box>
+    <box frame="60" keyframe="1" outside="1" occluded="0" xtl="732.68" ytl="201.29" xbr="749.40" ybr="389.27" rotation="325.90" z_order="0">
+    </box>
+  </track>
+  <track id="14" label="stick" source="manual">
+    <box frame="60" keyframe="1" outside="0" occluded="0" xtl="742.66" ytl="226.73" xbr="762.00" ybr="402.18" rotation="320.90" z_order="0">
+    </box>
+    <box frame="63" keyframe="1" outside="1" occluded="0" xtl="742.66" ytl="226.73" xbr="762.00" ybr="402.18" rotation="320.90" z_order="0">
+    </box>
+  </track>
+  <track id="15" label="stick" source="manual">
+    <box frame="63" keyframe="1" outside="0" occluded="0" xtl="751.10" ytl="252.33" xbr="773.97" ybr="416.01" rotation="309.80" z_order="0">
+    </box>
+    <box frame="66" keyframe="1" outside="1" occluded="0" xtl="751.10" ytl="252.33" xbr="773.97" ybr="416.01" rotation="309.80" z_order="0">
+    </box>
+  </track>
+  <track id="16" label="stick" source="manual">
+    <box frame="66" keyframe="1" outside="0" occluded="0" xtl="746.22" ytl="273.63" xbr="768.00" ybr="424.68" rotation="303.60" z_order="0">
+    </box>
+    <box frame="69" keyframe="1" outside="1" occluded="0" xtl="746.22" ytl="273.63" xbr="768.00" ybr="424.68" rotation="303.60" z_order="0">
+    </box>
+  </track>
+  <track id="17" label="stick" source="manual">
+    <box frame="69" keyframe="1" outside="0" occluded="0" xtl="751.47" ytl="280.42" xbr="776.99" ybr="437.40" rotation="303.70" z_order="0">
+    </box>
+    <box frame="72" keyframe="1" outside="1" occluded="0" xtl="751.47" ytl="280.42" xbr="776.99" ybr="437.40" rotation="303.70" z_order="0">
+    </box>
+  </track>
+  <track id="18" label="stick" source="manual">
+    <box frame="72" keyframe="1" outside="0" occluded="0" xtl="753.45" ytl="270.10" xbr="782.77" ybr="434.62" rotation="316.30" z_order="0">
+    </box>
+    <box frame="75" keyframe="1" outside="1" occluded="0" xtl="753.45" ytl="270.10" xbr="782.77" ybr="434.62" rotation="316.30" z_order="0">
+    </box>
+  </track>
+  <track id="19" label="stick" source="manual">
+    <box frame="75" keyframe="1" outside="0" occluded="0" xtl="763.18" ytl="237.90" xbr="786.06" ybr="433.99" rotation="316.90" z_order="0">
+    </box>
+    <box frame="78" keyframe="1" outside="1" occluded="0" xtl="763.18" ytl="237.90" xbr="786.06" ybr="433.99" rotation="316.90" z_order="0">
+    </box>
+  </track>
+  <track id="20" label="stick" source="manual">
+    <box frame="78" keyframe="1" outside="0" occluded="0" xtl="769.33" ytl="216.20" xbr="796.67" ybr="430.88" rotation="320.90" z_order="0">
+    </box>
+    <box frame="81" keyframe="1" outside="1" occluded="0" xtl="769.33" ytl="216.20" xbr="796.67" ybr="430.88" rotation="320.90" z_order="0">
+    </box>
+  </track>
+  <track id="21" label="stick" source="manual">
+    <box frame="81" keyframe="1" outside="0" occluded="0" xtl="782.24" ytl="210.92" xbr="806.88" ybr="426.90" rotation="329.90" z_order="0">
+    </box>
+    <box frame="84" keyframe="1" outside="1" occluded="0" xtl="782.24" ytl="210.92" xbr="806.88" ybr="426.90" rotation="329.90" z_order="0">
+    </box>
+  </track>
+  <track id="22" label="stick" source="manual">
+    <box frame="84" keyframe="1" outside="0" occluded="0" xtl="790.62" ytl="217.24" xbr="817.02" ybr="434.34" rotation="336.80" z_order="0">
+    </box>
+    <box frame="87" keyframe="1" outside="1" occluded="0" xtl="790.62" ytl="217.24" xbr="817.02" ybr="434.34" rotation="336.80" z_order="0">
+    </box>
+  </track>
+  <track id="23" label="stick" source="manual">
+    <box frame="87" keyframe="1" outside="0" occluded="0" xtl="809.01" ytl="229.16" xbr="837.54" ybr="430.42" rotation="338.50" z_order="0">
+    </box>
+    <box frame="90" keyframe="1" outside="1" occluded="0" xtl="809.01" ytl="229.16" xbr="837.54" ybr="430.42" rotation="338.50" z_order="0">
+    </box>
+  </track>
+  <track id="24" label="stick" source="manual">
+    <box frame="90" keyframe="1" outside="0" occluded="0" xtl="822.88" ytl="235.62" xbr="856.59" ybr="436.72" rotation="341.40" z_order="0">
+    </box>
+    <box frame="93" keyframe="1" outside="1" occluded="0" xtl="822.88" ytl="235.62" xbr="856.59" ybr="436.72" rotation="341.40" z_order="0">
+    </box>
+  </track>
+  <track id="25" label="stick" source="manual">
+    <box frame="93" keyframe="1" outside="0" occluded="0" xtl="839.71" ytl="270.78" xbr="863.46" ybr="457.17" rotation="333.50" z_order="0">
+    </box>
+    <box frame="96" keyframe="1" outside="1" occluded="0" xtl="839.71" ytl="270.78" xbr="863.46" ybr="457.17" rotation="333.50" z_order="0">
+    </box>
+  </track>
+  <track id="26" label="stick" source="manual">
+    <box frame="96" keyframe="1" outside="0" occluded="0" xtl="850.61" ytl="275.69" xbr="883.88" ybr="473.37" rotation="328.90" z_order="0">
+    </box>
+    <box frame="99" keyframe="1" outside="1" occluded="0" xtl="850.61" ytl="275.69" xbr="883.88" ybr="473.37" rotation="328.90" z_order="0">
+    </box>
+  </track>
+  <track id="27" label="stick" source="manual">
+    <box frame="99" keyframe="1" outside="0" occluded="0" xtl="870.55" ytl="275.14" xbr="900.07" ybr="470.62" rotation="327.20" z_order="0">
+    </box>
+    <box frame="102" keyframe="1" outside="1" occluded="0" xtl="870.55" ytl="275.14" xbr="900.07" ybr="470.62" rotation="327.20" z_order="0">
+    </box>
+  </track>
+  <track id="28" label="stick" source="manual">
+    <box frame="102" keyframe="1" outside="0" occluded="0" xtl="889.68" ytl="271.32" xbr="919.77" ybr="471.90" rotation="329.70" z_order="0">
+    </box>
+    <box frame="105" keyframe="1" outside="1" occluded="0" xtl="889.68" ytl="271.32" xbr="919.77" ybr="471.90" rotation="329.70" z_order="0">
+    </box>
+  </track>
+  <track id="29" label="stick" source="manual">
+    <box frame="105" keyframe="1" outside="0" occluded="0" xtl="910.25" ytl="291.43" xbr="936.73" ybr="480.80" rotation="324.10" z_order="0">
+    </box>
+    <box frame="108" keyframe="1" outside="1" occluded="0" xtl="910.25" ytl="291.43" xbr="936.73" ybr="480.80" rotation="324.10" z_order="0">
+    </box>
+  </track>
+  <track id="30" label="stick" source="manual">
+    <box frame="108" keyframe="1" outside="0" occluded="0" xtl="928.58" ytl="297.54" xbr="952.00" ybr="477.75" rotation="321.70" z_order="0">
+    </box>
+    <box frame="111" keyframe="1" outside="1" occluded="0" xtl="928.58" ytl="297.54" xbr="952.00" ybr="477.75" rotation="321.70" z_order="0">
+    </box>
+  </track>
+  <track id="31" label="stick" source="manual">
+    <box frame="111" keyframe="1" outside="0" occluded="0" xtl="946.48" ytl="312.03" xbr="968.88" ybr="486.41" rotation="324.00" z_order="0">
+    </box>
+    <box frame="114" keyframe="1" outside="1" occluded="0" xtl="946.48" ytl="312.03" xbr="968.88" ybr="486.41" rotation="324.00" z_order="0">
+    </box>
+  </track>
+  <track id="32" label="stick" source="manual">
+    <box frame="114" keyframe="1" outside="0" occluded="0" xtl="970.37" ytl="318.53" xbr="993.79" ybr="503.03" rotation="324.80" z_order="0">
+    </box>
+    <box frame="117" keyframe="1" outside="1" occluded="0" xtl="970.37" ytl="318.53" xbr="993.79" ybr="503.03" rotation="324.80" z_order="0">
+    </box>
+  </track>
+  <track id="33" label="stick" source="manual">
+    <box frame="117" keyframe="1" outside="0" occluded="0" xtl="999.85" ytl="327.06" xbr="1015.12" ybr="497.09" rotation="330.00" z_order="0">
+    </box>
+    <box frame="120" keyframe="1" outside="1" occluded="0" xtl="999.85" ytl="327.06" xbr="1015.12" ybr="497.09" rotation="330.00" z_order="0">
+    </box>
+  </track>
+  <track id="34" label="stick" source="manual">
+    <box frame="120" keyframe="1" outside="0" occluded="0" xtl="1018.18" ytl="327.06" xbr="1037.52" ybr="510.33" rotation="331.80" z_order="0">
+    </box>
+    <box frame="123" keyframe="1" outside="1" occluded="0" xtl="1018.18" ytl="327.06" xbr="1037.52" ybr="510.33" rotation="331.80" z_order="0">
+    </box>
+  </track>
+  <track id="35" label="stick" source="manual">
+    <box frame="123" keyframe="1" outside="0" occluded="0" xtl="1036.13" ytl="329.69" xbr="1053.44" ybr="506.57" rotation="331.00" z_order="0">
+    </box>
+    <box frame="126" keyframe="1" outside="1" occluded="0" xtl="1036.13" ytl="329.69" xbr="1053.44" ybr="506.57" rotation="331.00" z_order="0">
+    </box>
+  </track>
+  <track id="36" label="stick" source="manual">
+    <box frame="126" keyframe="1" outside="0" occluded="0" xtl="1050.68" ytl="332.65" xbr="1072.06" ybr="516.57" rotation="329.90" z_order="0">
+    </box>
+    <box frame="129" keyframe="1" outside="1" occluded="0" xtl="1050.68" ytl="332.65" xbr="1072.06" ybr="516.57" rotation="329.90" z_order="0">
+    </box>
+  </track>
+  <track id="37" label="stick" source="manual">
+    <box frame="129" keyframe="1" outside="0" occluded="0" xtl="1069.00" ytl="343.85" xbr="1096.49" ybr="513.58" rotation="330.20" z_order="0">
+    </box>
+    <box frame="132" keyframe="1" outside="1" occluded="0" xtl="1069.00" ytl="343.85" xbr="1096.49" ybr="513.58" rotation="330.20" z_order="0">
+    </box>
+  </track>
+  <track id="38" label="stick" source="manual">
+    <box frame="132" keyframe="1" outside="0" occluded="0" xtl="1097.42" ytl="333.40" xbr="1119.82" ybr="529.01" rotation="329.40" z_order="0">
+    </box>
+    <box frame="135" keyframe="1" outside="1" occluded="0" xtl="1097.42" ytl="333.40" xbr="1119.82" ybr="529.01" rotation="329.40" z_order="0">
+    </box>
+  </track>
+  <track id="39" label="stick" source="manual">
+    <box frame="135" keyframe="1" outside="0" occluded="0" xtl="1113.59" ytl="320.40" xbr="1140.06" ybr="511.00" rotation="318.40" z_order="0">
+    </box>
+    <box frame="138" keyframe="1" outside="1" occluded="0" xtl="1113.59" ytl="320.40" xbr="1140.06" ybr="511.00" rotation="318.40" z_order="0">
+    </box>
+  </track>
+  <track id="40" label="stick" source="manual">
+    <box frame="138" keyframe="1" outside="0" occluded="0" xtl="1130.23" ytl="317.92" xbr="1152.62" ybr="538.30" rotation="317.80" z_order="0">
+    </box>
+    <box frame="141" keyframe="1" outside="1" occluded="0" xtl="1130.23" ytl="317.92" xbr="1152.62" ybr="538.30" rotation="317.80" z_order="0">
+    </box>
+  </track>
+  <track id="41" label="stick" source="manual">
+    <box frame="141" keyframe="1" outside="0" occluded="0" xtl="1143.37" ytl="316.62" xbr="1165.76" ybr="537.00" rotation="315.60" z_order="0">
+    </box>
+    <box frame="144" keyframe="1" outside="1" occluded="0" xtl="1143.37" ytl="316.62" xbr="1165.76" ybr="537.00" rotation="315.60" z_order="0">
+    </box>
+  </track>
+  <track id="42" label="stick" source="manual">
+    <box frame="144" keyframe="1" outside="0" occluded="0" xtl="1159.65" ytl="322.73" xbr="1182.05" ybr="543.11" rotation="317.40" z_order="0">
+    </box>
+    <box frame="147" keyframe="1" outside="1" occluded="0" xtl="1159.65" ytl="322.73" xbr="1182.05" ybr="543.11" rotation="317.40" z_order="0">
+    </box>
+  </track>
+  <track id="43" label="stick" source="manual">
+    <box frame="147" keyframe="1" outside="0" occluded="0" xtl="1190.20" ytl="336.98" xbr="1212.59" ybr="557.37" rotation="319.20" z_order="0">
+    </box>
+    <box frame="150" keyframe="1" outside="1" occluded="0" xtl="1190.20" ytl="336.98" xbr="1212.59" ybr="557.37" rotation="319.20" z_order="0">
+    </box>
+  </track>
+  <track id="44" label="stick" source="manual">
+    <box frame="150" keyframe="1" outside="0" occluded="0" xtl="1212.36" ytl="344.37" xbr="1234.76" ybr="554.97" rotation="317.70" z_order="0">
+    </box>
+    <box frame="153" keyframe="1" outside="1" occluded="0" xtl="1212.36" ytl="344.37" xbr="1234.76" ybr="554.97" rotation="317.70" z_order="0">
+    </box>
+  </track>
+  <track id="45" label="stick" source="manual">
+    <box frame="153" keyframe="1" outside="0" occluded="0" xtl="1228.89" ytl="344.11" xbr="1251.28" ybr="564.49" rotation="315.60" z_order="0">
+    </box>
+    <box frame="156" keyframe="1" outside="1" occluded="0" xtl="1228.89" ytl="344.11" xbr="1251.28" ybr="564.49" rotation="315.60" z_order="0">
+    </box>
+  </track>
+  <track id="46" label="stick" source="manual">
+    <box frame="156" keyframe="1" outside="0" occluded="0" xtl="1231.39" ytl="339.62" xbr="1253.79" ybr="570.06" rotation="315.60" z_order="0">
+    </box>
+    <box frame="159" keyframe="1" outside="1" occluded="0" xtl="1231.39" ytl="339.62" xbr="1253.79" ybr="570.06" rotation="315.60" z_order="0">
+    </box>
+  </track>
+  <track id="47" label="stick" source="manual">
+    <box frame="159" keyframe="1" outside="0" occluded="0" xtl="1234.52" ytl="317.67" xbr="1256.91" ybr="594.89" rotation="315.60" z_order="0">
+    </box>
+    <box frame="162" keyframe="1" outside="1" occluded="0" xtl="1234.52" ytl="317.67" xbr="1256.91" ybr="594.89" rotation="315.60" z_order="0">
+    </box>
+  </track>
+  <track id="48" label="stick" source="manual">
+    <box frame="162" keyframe="1" outside="0" occluded="0" xtl="1229.21" ytl="308.41" xbr="1255.93" ybr="604.33" rotation="315.60" z_order="0">
+    </box>
+    <box frame="165" keyframe="1" outside="1" occluded="0" xtl="1229.21" ytl="308.41" xbr="1255.93" ybr="604.33" rotation="315.60" z_order="0">
+    </box>
+  </track>
+  <track id="49" label="stick" source="manual">
+    <box frame="165" keyframe="1" outside="0" occluded="0" xtl="1224.07" ytl="293.70" xbr="1250.83" ybr="606.86" rotation="315.60" z_order="0">
+    </box>
+    <box frame="168" keyframe="1" outside="1" occluded="0" xtl="1224.07" ytl="293.70" xbr="1250.83" ybr="606.86" rotation="315.60" z_order="0">
+    </box>
+  </track>
+  <track id="50" label="stick" source="manual">
+    <box frame="168" keyframe="1" outside="0" occluded="0" xtl="1229.56" ytl="289.86" xbr="1262.05" ybr="615.48" rotation="315.60" z_order="0">
+    </box>
+    <box frame="171" keyframe="1" outside="1" occluded="0" xtl="1229.56" ytl="289.86" xbr="1262.05" ybr="615.48" rotation="315.60" z_order="0">
+    </box>
+  </track>
+  <track id="51" label="stick" source="manual">
+    <box frame="171" keyframe="1" outside="0" occluded="0" xtl="1231.88" ytl="283.98" xbr="1263.05" ybr="619.95" rotation="317.40" z_order="0">
+    </box>
+    <box frame="174" keyframe="1" outside="1" occluded="0" xtl="1231.88" ytl="283.98" xbr="1263.05" ybr="619.95" rotation="317.40" z_order="0">
+    </box>
+  </track>
+  <track id="52" label="stick" source="manual">
+    <box frame="174" keyframe="1" outside="0" occluded="0" xtl="1221.93" ytl="300.89" xbr="1258.15" ybr="615.66" rotation="323.90" z_order="0">
+    </box>
+    <box frame="177" keyframe="1" outside="1" occluded="0" xtl="1221.93" ytl="300.89" xbr="1258.15" ybr="615.66" rotation="323.90" z_order="0">
+    </box>
+  </track>
+  <track id="53" label="stick" source="manual">
+    <box frame="177" keyframe="1" outside="0" occluded="0" xtl="1229.10" ytl="297.93" xbr="1265.32" ybr="612.70" rotation="323.90" z_order="0">
+    </box>
+    <box frame="180" keyframe="1" outside="1" occluded="0" xtl="1229.10" ytl="297.93" xbr="1265.32" ybr="612.70" rotation="323.90" z_order="0">
+    </box>
+  </track>
+  <track id="54" label="stick" source="manual">
+    <box frame="180" keyframe="1" outside="0" occluded="0" xtl="1233.17" ytl="292.84" xbr="1269.39" ybr="607.61" rotation="325.40" z_order="0">
+    </box>
+    <box frame="183" keyframe="1" outside="1" occluded="0" xtl="1233.17" ytl="292.84" xbr="1269.39" ybr="607.61" rotation="325.40" z_order="0">
+    </box>
+  </track>
+  <track id="55" label="stick" source="manual">
+    <box frame="183" keyframe="1" outside="0" occluded="0" xtl="1236.31" ytl="281.43" xbr="1272.54" ybr="611.47" rotation="327.00" z_order="0">
+    </box>
+    <box frame="186" keyframe="1" outside="1" occluded="0" xtl="1236.31" ytl="281.43" xbr="1272.54" ybr="611.47" rotation="327.00" z_order="0">
+    </box>
+  </track>
+  <track id="56" label="stick" source="manual">
+    <box frame="186" keyframe="1" outside="0" occluded="0" xtl="1235.79" ytl="273.25" xbr="1272.01" ybr="606.33" rotation="329.50" z_order="0">
+    </box>
+    <box frame="189" keyframe="1" outside="1" occluded="0" xtl="1235.79" ytl="273.25" xbr="1272.01" ybr="606.33" rotation="329.50" z_order="0">
+    </box>
+  </track>
+  <track id="57" label="stick" source="manual">
+    <box frame="189" keyframe="1" outside="0" occluded="0" xtl="1231.24" ytl="273.96" xbr="1267.46" ybr="597.54" rotation="330.90" z_order="0">
+    </box>
+    <box frame="192" keyframe="1" outside="1" occluded="0" xtl="1231.24" ytl="273.96" xbr="1267.46" ybr="597.54" rotation="330.90" z_order="0">
+    </box>
+  </track>
+  <track id="58" label="stick" source="manual">
+    <box frame="192" keyframe="1" outside="0" occluded="0" xtl="1233.04" ytl="273.25" xbr="1269.26" ybr="591.34" rotation="327.90" z_order="0">
+    </box>
+    <box frame="195" keyframe="1" outside="1" occluded="0" xtl="1233.04" ytl="273.25" xbr="1269.26" ybr="591.34" rotation="327.90" z_order="0">
+    </box>
+  </track>
+  <track id="59" label="stick" source="manual">
+    <box frame="195" keyframe="1" outside="0" occluded="0" xtl="1228.08" ytl="276.55" xbr="1264.30" ybr="591.32" rotation="330.50" z_order="0">
+    </box>
+    <box frame="198" keyframe="1" outside="1" occluded="0" xtl="1228.08" ytl="276.55" xbr="1264.30" ybr="591.32" rotation="330.50" z_order="0">
+    </box>
+  </track>
+  <track id="60" label="stick" source="manual">
+    <box frame="198" keyframe="1" outside="0" occluded="0" xtl="1233.17" ytl="280.63" xbr="1269.39" ybr="595.40" rotation="329.30" z_order="0">
+    </box>
+    <box frame="201" keyframe="1" outside="1" occluded="0" xtl="1233.17" ytl="280.63" xbr="1269.39" ybr="595.40" rotation="329.30" z_order="0">
+    </box>
+  </track>
+  <track id="61" label="stick" source="manual">
+    <box frame="201" keyframe="1" outside="0" occluded="0" xtl="1230.12" ytl="275.54" xbr="1266.34" ybr="590.31" rotation="331.40" z_order="0">
+    </box>
+    <box frame="204" keyframe="1" outside="1" occluded="0" xtl="1230.12" ytl="275.54" xbr="1266.34" ybr="590.31" rotation="331.40" z_order="0">
+    </box>
+  </track>
+  <track id="62" label="stick" source="manual">
+    <box frame="204" keyframe="1" outside="0" occluded="0" xtl="1224.01" ytl="271.46" xbr="1260.23" ybr="586.23" rotation="332.30" z_order="0">
+    </box>
+    <box frame="207" keyframe="1" outside="1" occluded="0" xtl="1224.01" ytl="271.46" xbr="1260.23" ybr="586.23" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="63" label="stick" source="manual">
+    <box frame="207" keyframe="1" outside="0" occluded="0" xtl="1213.83" ytl="270.45" xbr="1250.05" ybr="585.21" rotation="332.30" z_order="0">
+    </box>
+    <box frame="210" keyframe="1" outside="1" occluded="0" xtl="1213.83" ytl="270.45" xbr="1250.05" ybr="585.21" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="64" label="stick" source="manual">
+    <box frame="210" keyframe="1" outside="0" occluded="0" xtl="1209.76" ytl="268.41" xbr="1245.98" ybr="583.18" rotation="332.30" z_order="0">
+    </box>
+    <box frame="213" keyframe="1" outside="1" occluded="0" xtl="1209.76" ytl="268.41" xbr="1245.98" ybr="583.18" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="65" label="stick" source="manual">
+    <box frame="213" keyframe="1" outside="0" occluded="0" xtl="1206.70" ytl="268.41" xbr="1242.92" ybr="583.18" rotation="332.30" z_order="0">
+    </box>
+    <box frame="216" keyframe="1" outside="1" occluded="0" xtl="1206.70" ytl="268.41" xbr="1242.92" ybr="583.18" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="66" label="stick" source="manual">
+    <box frame="216" keyframe="1" outside="0" occluded="0" xtl="1206.70" ytl="266.37" xbr="1242.92" ybr="581.14" rotation="332.30" z_order="0">
+    </box>
+    <box frame="219" keyframe="1" outside="1" occluded="0" xtl="1206.70" ytl="266.37" xbr="1242.92" ybr="581.14" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="67" label="stick" source="manual">
+    <box frame="219" keyframe="1" outside="0" occluded="0" xtl="1204.67" ytl="268.41" xbr="1240.89" ybr="583.18" rotation="332.30" z_order="0">
+    </box>
+    <box frame="222" keyframe="1" outside="1" occluded="0" xtl="1204.67" ytl="268.41" xbr="1240.89" ybr="583.18" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="68" label="stick" source="manual">
+    <box frame="222" keyframe="1" outside="0" occluded="0" xtl="1203.65" ytl="268.41" xbr="1239.87" ybr="583.18" rotation="332.30" z_order="0">
+    </box>
+    <box frame="225" keyframe="1" outside="1" occluded="0" xtl="1203.65" ytl="268.41" xbr="1239.87" ybr="583.18" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="69" label="stick" source="manual">
+    <box frame="225" keyframe="1" outside="0" occluded="0" xtl="1204.67" ytl="267.39" xbr="1240.89" ybr="582.16" rotation="332.30" z_order="0">
+    </box>
+    <box frame="228" keyframe="1" outside="1" occluded="0" xtl="1204.67" ytl="267.39" xbr="1240.89" ybr="582.16" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="70" label="stick" source="manual">
+    <box frame="228" keyframe="1" outside="0" occluded="0" xtl="1202.63" ytl="268.41" xbr="1238.85" ybr="583.18" rotation="332.30" z_order="0">
+    </box>
+    <box frame="231" keyframe="1" outside="1" occluded="0" xtl="1202.63" ytl="268.41" xbr="1238.85" ybr="583.18" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="71" label="stick" source="manual">
+    <box frame="231" keyframe="1" outside="0" occluded="0" xtl="1201.61" ytl="269.43" xbr="1237.83" ybr="584.20" rotation="332.30" z_order="0">
+    </box>
+    <box frame="234" keyframe="1" outside="1" occluded="0" xtl="1201.61" ytl="269.43" xbr="1237.83" ybr="584.20" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="72" label="stick" source="manual">
+    <box frame="234" keyframe="1" outside="0" occluded="0" xtl="1200.59" ytl="270.44" xbr="1236.82" ybr="585.21" rotation="332.30" z_order="0">
+    </box>
+    <box frame="237" keyframe="1" outside="1" occluded="0" xtl="1200.59" ytl="270.44" xbr="1236.82" ybr="585.21" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="73" label="stick" source="manual">
+    <box frame="237" keyframe="1" outside="0" occluded="0" xtl="1197.54" ytl="269.43" xbr="1233.76" ybr="584.20" rotation="332.30" z_order="0">
+    </box>
+    <box frame="240" keyframe="1" outside="1" occluded="0" xtl="1197.54" ytl="269.43" xbr="1233.76" ybr="584.20" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="74" label="stick" source="manual">
+    <box frame="240" keyframe="1" outside="0" occluded="0" xtl="1192.45" ytl="272.48" xbr="1228.67" ybr="587.25" rotation="332.30" z_order="0">
+    </box>
+    <box frame="243" keyframe="1" outside="1" occluded="0" xtl="1192.45" ytl="272.48" xbr="1228.67" ybr="587.25" rotation="332.30" z_order="0">
+    </box>
+  </track>
+  <track id="75" label="stick" source="manual">
+    <box frame="243" keyframe="1" outside="0" occluded="0" xtl="1188.38" ytl="285.72" xbr="1224.60" ybr="600.49" rotation="336.70" z_order="0">
+    </box>
+    <box frame="246" keyframe="1" outside="1" occluded="0" xtl="1188.38" ytl="285.72" xbr="1224.60" ybr="600.49" rotation="336.70" z_order="0">
+    </box>
+  </track>
+  <track id="76" label="stick" source="manual">
+    <box frame="246" keyframe="1" outside="0" occluded="0" xtl="1190.41" ytl="320.33" xbr="1226.63" ybr="635.10" rotation="344.70" z_order="0">
+    </box>
+    <box frame="249" keyframe="1" outside="1" occluded="0" xtl="1190.41" ytl="320.33" xbr="1226.63" ybr="635.10" rotation="344.70" z_order="0">
+    </box>
+  </track>
+  <track id="77" label="stick" source="manual">
+    <box frame="249" keyframe="1" outside="0" occluded="0" xtl="1180.45" ytl="389.59" xbr="1216.67" ybr="680.23" rotation="356.20" z_order="0">
+    </box>
+    <box frame="252" keyframe="1" outside="1" occluded="0" xtl="1180.45" ytl="389.59" xbr="1216.67" ybr="680.23" rotation="356.20" z_order="0">
+    </box>
+  </track>
+  <track id="78" label="stick" source="manual">
+    <box frame="252" keyframe="1" outside="0" occluded="0" xtl="1184.38" ytl="417.06" xbr="1220.61" ybr="686.00" rotation="0.20" z_order="0">
+    </box>
+    <box frame="255" keyframe="1" outside="1" occluded="0" xtl="1184.38" ytl="417.06" xbr="1220.61" ybr="686.00" rotation="0.20" z_order="0">
+    </box>
+  </track>
+  <track id="79" label="stick" source="manual">
+    <box frame="255" keyframe="1" outside="0" occluded="0" xtl="1193.49" ytl="440.99" xbr="1229.71" ybr="694.60" rotation="0.20" z_order="0">
+    </box>
+    <box frame="258" keyframe="1" outside="1" occluded="0" xtl="1193.49" ytl="440.99" xbr="1229.71" ybr="694.60" rotation="0.20" z_order="0">
+    </box>
+  </track>
+  <track id="80" label="stick" source="manual">
+    <box frame="258" keyframe="1" outside="0" occluded="0" xtl="1188.38" ytl="443.02" xbr="1224.60" ybr="711.97" rotation="7.90" z_order="0">
+    </box>
+    <box frame="261" keyframe="1" outside="1" occluded="0" xtl="1188.38" ytl="443.02" xbr="1224.60" ybr="711.97" rotation="7.90" z_order="0">
+    </box>
+  </track>
+  <track id="81" label="stick" source="manual">
+    <box frame="261" keyframe="1" outside="0" occluded="0" xtl="1186.34" ytl="449.13" xbr="1222.56" ybr="718.08" rotation="11.50" z_order="0">
+    </box>
+    <box frame="264" keyframe="1" outside="1" occluded="0" xtl="1186.34" ytl="449.13" xbr="1222.56" ybr="718.08" rotation="11.50" z_order="0">
+    </box>
+  </track>
+  <track id="82" label="stick" source="manual">
+    <box frame="264" keyframe="1" outside="0" occluded="0" xtl="1181.06" ytl="447.37" xbr="1215.40" ybr="716.31" rotation="16.90" z_order="0">
+    </box>
+    <box frame="267" keyframe="1" outside="1" occluded="0" xtl="1181.06" ytl="447.37" xbr="1215.40" ybr="716.31" rotation="16.90" z_order="0">
+    </box>
+  </track>
+  <track id="83" label="stick" source="manual">
+    <box frame="267" keyframe="1" outside="0" occluded="0" xtl="1178.20" ytl="462.37" xbr="1214.42" ybr="731.31" rotation="17.60" z_order="0">
+    </box>
+    <box frame="270" keyframe="1" outside="1" occluded="0" xtl="1178.20" ytl="462.37" xbr="1214.42" ybr="731.31" rotation="17.60" z_order="0">
+    </box>
+  </track>
+  <track id="84" label="stick" source="manual">
+    <box frame="270" keyframe="1" outside="0" occluded="0" xtl="1178.20" ytl="468.48" xbr="1214.42" ybr="737.42" rotation="15.70" z_order="0">
+    </box>
+    <box frame="273" keyframe="1" outside="1" occluded="0" xtl="1178.20" ytl="468.48" xbr="1214.42" ybr="737.42" rotation="15.70" z_order="0">
+    </box>
+  </track>
+  <track id="85" label="stick" source="manual">
+    <box frame="273" keyframe="1" outside="0" occluded="0" xtl="1182.27" ytl="476.62" xbr="1218.49" ybr="745.57" rotation="13.20" z_order="0">
+    </box>
+    <box frame="276" keyframe="1" outside="1" occluded="0" xtl="1182.27" ytl="476.62" xbr="1218.49" ybr="745.57" rotation="13.20" z_order="0">
+    </box>
+  </track>
+  <track id="86" label="stick" source="manual">
+    <box frame="276" keyframe="1" outside="0" occluded="0" xtl="1182.27" ytl="478.66" xbr="1218.49" ybr="747.60" rotation="9.80" z_order="0">
+    </box>
+    <box frame="279" keyframe="1" outside="1" occluded="0" xtl="1182.27" ytl="478.66" xbr="1218.49" ybr="747.60" rotation="9.80" z_order="0">
+    </box>
+  </track>
+  <track id="87" label="stick" source="manual">
+    <box frame="279" keyframe="1" outside="0" occluded="0" xtl="1187.36" ytl="484.77" xbr="1223.58" ybr="753.71" rotation="4.40" z_order="0">
+    </box>
+  </track>
+</annotations>
